@@ -6,7 +6,7 @@ SOURCES  = smain.cpp \
 
 !system-sqlite:!contains( LIBS, .*sqlite.* ) {
     CONFIG(release, debug|release):DEFINES *= NDEBUG
-    DEFINES     += SQLITE_OMIT_LOAD_EXTENSION SQLITE_OMIT_COMPLETE  SQLITE_HAS_CODEC
+    DEFINES     += SQLITE_OMIT_LOAD_EXTENSION SQLITE_OMIT_COMPLETE SQLITE_HAS_CODEC
     INCLUDEPATH += include
     LIBS        += ./lib/libsqlite.a
 } else {

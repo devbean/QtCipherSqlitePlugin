@@ -1,0 +1,6 @@
+v0.2 2013-1-9
+- Update sqlite to 3.7.15.1;
+- Support for Qt 5.
+
+v0.1 2012-9-27
+- sqlite 3.7.13.
