@@ -1,7 +1,7 @@
 QtCipherSqlitePlugin
 ====================
 
-A Qt plugin for cipher SQLite which is based on SQLite source and wxSQLite3 in wxWidget.
+A Qt plugin for cipher SQLite which is based on SQLite source and wxSQLite3 in wxWidget. This plugin is released with LGPL 2.1 the same as Qt open source license.
 
 Qt is a full development framework with tools designed to streamline the creation of applications and user interfaces for desktop, embedded and mobile platforms. You could find more details at http://qt.digia.com/product/.
 
