@@ -1,7 +1,7 @@
 TARGET = sqlitecipher
 TEMPLATE = lib
 
-QT      += core sql
+QT      *= core sql
 
 include($$PWD/qt_p.pri)
 include($$PWD/sqlite3/sqlite3.pri)
@@ -9,6 +9,7 @@ include($$PWD/sqlite3/sqlite3.pri)
 HEADERS  += $$PWD/qsql_sqlite.h
 SOURCES  += $$PWD/qsql_sqlite.cpp \
     $$PWD/smain.cpp
+OTHER_FILES += SqliteCipherDriverPlugin.json
 
 !system-sqlite:!contains( LIBS, .*sqlite.* ) {
     CONFIG(release, debug|release):DEFINES *= NDEBUG

@@ -63,6 +63,10 @@ extern "C" {
 
 Q_DECLARE_METATYPE(sqlite3*)
 Q_DECLARE_METATYPE(sqlite3_stmt*)
+#if (QT_VERSION >= 0x050000)
+Q_DECLARE_OPAQUE_POINTER(sqlite3*)
+Q_DECLARE_OPAQUE_POINTER(sqlite3_stmt*)
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -329,6 +333,9 @@ QSQLiteResult::~QSQLiteResult()
 
 void QSQLiteResult::virtual_hook(int id, void *data)
 {
+#if (QT_VERSION >= 0x050000)
+    QSqlCachedResult::virtual_hook(id, data);
+#else
     switch (id) {
     case QSqlResult::DetachFromResultSet:
         if (d->stmt)
@@ -337,6 +344,7 @@ void QSQLiteResult::virtual_hook(int id, void *data)
     default:
         QSqlCachedResult::virtual_hook(id, data);
     }
+#endif
 }
 
 bool QSQLiteResult::reset(const QString &query)
@@ -490,6 +498,14 @@ QSqlRecord QSQLiteResult::record() const
     return d->rInf;
 }
 
+#if (QT_VERSION >= 0x050000)
+void QSQLiteResult::detachFromResultSet()
+{
+    if (d->stmt)
+        sqlite3_reset(d->stmt);
+}
+#endif
+
 QVariant QSQLiteResult::handle() const
 {
     return QVariant::fromValue(d->stmt);
@@ -542,10 +558,10 @@ bool QSQLiteDriver::hasFeature(DriverFeature f) const
 }
 
 /*
-   SQLite dbs have no user name, passwords, hosts or ports.
-   just file names.
+   SQLite dbs have no user name, hosts or ports.
+   just file names and password we need.
 */
-bool QSQLiteDriver::open(const QString & db, const QString &, const QString &, const QString &, int, const QString &conOpts)
+bool QSQLiteDriver::open(const QString & db, const QString &, const QString &password, const QString &, int, const QString &conOpts)
 {
     if (isOpen())
         close();
@@ -574,7 +590,9 @@ bool QSQLiteDriver::open(const QString & db, const QString &, const QString &, c
         sqlite3_busy_timeout(d->access, timeOut);
         setOpen(true);
         setOpenError(false);
-        sqlite3_key(d->access, "Trucc", 5);
+        if (!(password.isNull() || password.isEmpty())) {
+            sqlite3_key(d->access, password.toUtf8().constData(), password.size());
+        }
         return true;
     } else {
         setLastError(qMakeError(d->access, tr("Error opening database"),
