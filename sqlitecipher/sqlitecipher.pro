@@ -1,10 +1,17 @@
 TARGET = sqlitecipher
-TEMPLATE = lib
+android {
+    TEMPLATE = app
+} else {
+    TEMPLATE = lib
+}
 
 QT      *= core sql
 
 include($$PWD/qt_p.pri)
 include($$PWD/sqlite3/sqlite3.pri)
+
+target.path = $$[QT_INSTALL_PLUGINS]/sqldrivers/
+INSTALLS += target
 
 HEADERS  += $$PWD/qsql_sqlite.h
 SOURCES  += $$PWD/qsql_sqlite.cpp \
