@@ -1,4 +1,4 @@
-/****************************************************************************
+﻿/****************************************************************************
 **
 ** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
 ** Contact: http://www.qt-project.org/legal
@@ -569,6 +569,7 @@ bool QSQLiteDriver::open(const QString & db, const QString &, const QString &pas
     if (db.isEmpty())
         return false;
     bool sharedCache = false;
+    int   rekey  = 0;
     int openMode = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, timeOut=5000;
     QStringList opts=QString(conOpts).remove(QLatin1Char(' ')).split(QLatin1Char(';'));
     foreach(const QString &option, opts) {
@@ -582,6 +583,8 @@ bool QSQLiteDriver::open(const QString & db, const QString &, const QString &pas
             openMode = SQLITE_OPEN_READONLY;
         if (option == QLatin1String("QSQLITE_ENABLE_SHARED_CACHE"))
             sharedCache = true;
+        if (option == QLatin1String("CREATE_KEY")) rekey =1;
+           else if(option == QLatin1String("CANCEL_KEY")) rekey =2;
     }
 
     sqlite3_enable_shared_cache(sharedCache);
@@ -591,7 +594,12 @@ bool QSQLiteDriver::open(const QString & db, const QString &, const QString &pas
         setOpen(true);
         setOpenError(false);
         if (!(password.isNull() || password.isEmpty())) {
-            sqlite3_key(d->access, password.toUtf8().constData(), password.size());
+            if(rekey == 0) { sqlite3_key(d->access, password.toUtf8().constData(), password.size());}
+            if(rekey == 1) { if(SQLITE_OK !=sqlite3_rekey(d->access, password.toUtf8().constData(), password.size())) return false;}
+            if(rekey == 2) {
+            	             sqlite3_key(d->access, password.toUtf8().constData(), password.size());
+            	             sqlite3_rekey(d->access, nullptr, 0);
+            }
         }
         return true;
     } else {
