@@ -6,4 +6,4 @@
 !greaterThan(QT_MAJOR_VERSION, 4): INCLUDEPATH += <Qt4_Path>/src/sql/kernel
 
 # Qt5
-greaterThan(QT_MAJOR_VERSION, 4): INCLUDEPATH += <Qt5_Path>/Src/qtbase/src/sql/kernel
+greaterThan(QT_MAJOR_VERSION, 4): INCLUDEPATH += C:\Qt\Qt5.6.0\5.6\Src\qtbase\src\sql\kernel
