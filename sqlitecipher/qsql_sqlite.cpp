@@ -583,8 +583,8 @@ bool QSQLiteDriver::open(const QString & db, const QString &, const QString &pas
             openMode = SQLITE_OPEN_READONLY;
         if (option == QLatin1String("QSQLITE_ENABLE_SHARED_CACHE"))
             sharedCache = true;
-        if (option == QLatin1String("CREATE_KEY")) rekey =1;
-           else if(option == QLatin1String("CANCEL_KEY")) rekey =2;
+        if (option == QLatin1String("QSQLITE_CREATE_KEY")) rekey =1;
+           else if(option == QLatin1String("QSQLITE_REMOVE_KEY")) rekey =2;
     }
 
     sqlite3_enable_shared_cache(sharedCache);
