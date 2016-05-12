@@ -1,4 +1,10 @@
+
+CONFIG(debug, debug|release){
+TARGET = sqlitecipherd
+}else{
 TARGET = sqlitecipher
+}
+
 android {
     TEMPLATE = app
 } else {
