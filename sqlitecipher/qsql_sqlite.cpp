@@ -58,6 +58,13 @@
 # include <unistd.h>
 #endif
 
+#define CHECK_SQLITE_KEY \
+    do { \
+        sqlite3_key(d->access, password.toUtf8().constData(), password.size()); \
+        int result = sqlite3_exec(d->access, QString("SELECT count(*) FROM sqlite_master LIMIT 1").toUtf8().constData(), nullptr, nullptr, nullptr); \
+        if (result != SQLITE_OK) { setLastError(qMakeError(d->access, tr("Invalid password"), QSqlError::ConnectionError)); setOpenError(true); return false; } \
+    } while (0)
+
 extern "C" {
 #include "sqlite3.h"
 }
@@ -617,6 +624,7 @@ bool QSQLiteDriver::open(const QString & db, const QString &, const QString &pas
 
     enum KEY_OP {
         OPEN_WITH_KEY = 0,
+        CREATE_KEY,
         UPDATE_KEY,
         REMOVE_KEY
     };
@@ -626,6 +634,7 @@ bool QSQLiteDriver::open(const QString & db, const QString &, const QString &pas
     bool sharedCache = false;
     bool openReadOnlyOption = false;
     bool openUriOption = false;
+    QString newPassword = QString::null;
 
     const QStringList opts = QString(conOpts).remove(QLatin1Char(' ')).split(QLatin1Char(';'));
     foreach (const QString &option, opts) {
@@ -635,6 +644,10 @@ bool QSQLiteDriver::open(const QString & db, const QString &, const QString &pas
             if (ok)
                 timeOut = nt;
         }
+        if (option.startsWith(QLatin1String("QSQLITE_UPDATE_KEY="))) {
+            newPassword = option.mid(19);
+            keyOp = UPDATE_KEY;
+        }
         if (option == QLatin1String("QSQLITE_OPEN_READONLY")) {
             openReadOnlyOption = true;
         } else if (option == QLatin1String("QSQLITE_OPEN_URI")) {
@@ -642,7 +655,7 @@ bool QSQLiteDriver::open(const QString & db, const QString &, const QString &pas
         } else if (option == QLatin1String("QSQLITE_ENABLE_SHARED_CACHE")) {
             sharedCache = true;
         } else if (option == QLatin1String("QSQLITE_CREATE_KEY")) {
-            keyOp = UPDATE_KEY;
+            keyOp = CREATE_KEY;
         } else if (option == QLatin1String("QSQLITE_REMOVE_KEY")) {
             keyOp = REMOVE_KEY;
         }
@@ -662,27 +675,31 @@ bool QSQLiteDriver::open(const QString & db, const QString &, const QString &pas
             switch (keyOp) {
             case OPEN_WITH_KEY:
             {
-                sqlite3_key(d->access, password.toUtf8().constData(), password.size());
-                int result = sqlite3_exec(d->access, QString("SELECT count(*) FROM sqlite_master LIMIT 1").toStdString().data(), nullptr, nullptr, nullptr);
-                if (result != SQLITE_OK) {
-                    setLastError(qMakeError(d->access, tr("Invalid password"),
-                                 QSqlError::ConnectionError));
-                    setOpenError(true);
-                    return false;
-                }
-                break;
+                CHECK_SQLITE_KEY;
             }
-            case UPDATE_KEY:
+            case CREATE_KEY:
             {
                 if (SQLITE_OK != sqlite3_rekey(d->access, password.toUtf8().constData(), password.size())) {
                     return false;
                 }
                 break;
             }
+            case UPDATE_KEY:
+            {
+                // verify old password
+                CHECK_SQLITE_KEY;
+                // set new password
+                if (newPassword.isEmpty() || newPassword.isNull()) {
+                    sqlite3_rekey(d->access, nullptr, 0);
+                } else {
+                    sqlite3_rekey(d->access, newPassword.toUtf8().constData(), newPassword.size());
+                }
+                break;
+            }
             case REMOVE_KEY:
             {
                 // verify old password
-                sqlite3_key(d->access, password.toUtf8().constData(), password.size());
+                CHECK_SQLITE_KEY;
                 // set new password to null
                 sqlite3_rekey(d->access, nullptr, 0);
                 break;
