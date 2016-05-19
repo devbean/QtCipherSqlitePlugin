@@ -19,7 +19,7 @@ include($$PWD/sqlite3/sqlite3.pri)
 target.path = $$[QT_INSTALL_PLUGINS]/sqldrivers/
 INSTALLS += target
 
-HEADERS  += $$PWD/qsql_sqlite.h
+HEADERS  += $$PWD/qsql_sqlite_p.h
 SOURCES  += $$PWD/qsql_sqlite.cpp \
     $$PWD/smain.cpp
 OTHER_FILES += SqliteCipherDriverPlugin.json

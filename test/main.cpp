@@ -11,8 +11,9 @@ int main(int argc, char *argv[])
 
     QSqlDatabase dbconn = QSqlDatabase::addDatabase("SQLITECIPHER");
     dbconn.setDatabaseName("test_c.db");
+    dbconn.setPassword("test");
     if (!dbconn.open()) {
-        qDebug() << "Can not open connection.";
+        qDebug() << "Can not open connection: " << dbconn.lastError().driverText();
         exit(CONNECTION_FAILED);
     }
 

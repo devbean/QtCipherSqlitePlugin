@@ -1,7 +1,7 @@
 ﻿/****************************************************************************
 **
-** Copyright (C) 2012 Digia Plc and/or its subsidiary(-ies).
-** Contact: http://www.qt-project.org/legal
+** Copyright (C) 2016 The Qt Company Ltd.
+** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtSql module of the Qt Toolkit.
 **
@@ -10,46 +10,47 @@
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
 ** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and Digia.  For licensing terms and
-** conditions see http://qt.digia.com/licensing.  For further information
-** use the contact form at http://qt.digia.com/contact-us.
+** a written agreement between you and The Qt Company. For licensing terms
+** and conditions see https://www.qt.io/terms-conditions. For further
+** information use the contact form at https://www.qt.io/contact-us.
 **
 ** GNU Lesser General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL included in the
-** packaging of this file.  Please review the following information to
-** ensure the GNU Lesser General Public License version 2.1 requirements
-** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** In addition, as a special exception, Digia gives you certain additional
-** rights.  These rights are described in the Digia Qt LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
+** General Public License version 3 as published by the Free Software
+** Foundation and appearing in the file LICENSE.LGPL3 included in the
+** packaging of this file. Please review the following information to
+** ensure the GNU Lesser General Public License version 3 requirements
+** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
 **
 ** GNU General Public License Usage
 ** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3.0 as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL included in the
-** packaging of this file.  Please review the following information to
-** ensure the GNU General Public License version 3.0 requirements will be
-** met: http://www.gnu.org/copyleft/gpl.html.
-**
+** General Public License version 2.0 or (at your option) the GNU General
+** Public license version 3 or any later version approved by the KDE Free
+** Qt Foundation. The licenses are as published by the Free Software
+** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
+** included in the packaging of this file. Please review the following
+** information to ensure the GNU General Public License requirements will
+** be met: https://www.gnu.org/licenses/gpl-2.0.html and
+** https://www.gnu.org/licenses/gpl-3.0.html.
 **
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
 
-#include "qsql_sqlite.h"
+#include "qsql_sqlite_p.h"
 
-#include <qcoreapplication.h>
-#include <qvariant.h>
-#include <qsqlerror.h>
-#include <qsqlfield.h>
-#include <qsqlindex.h>
-#include <qsqlquery.h>
-#include <qstringlist.h>
-#include <qvector.h>
-#include <qdebug.h>
+#include <QCoreApplication>
+#include <QDateTime>
+#include <QVariant>
+#include <QSqlError>
+#include <QSqlField>
+#include <QSqlIndex>
+#include <QSqlQuery>
+#include <QStringList>
+#include <QVector>
+#include <QDebug>
+
+#include <qsqlcachedresult_p.h>
 
 #if defined Q_OS_WIN
 # include <qt_windows.h>
@@ -95,6 +96,9 @@ static QVariant::Type qGetColumnType(const QString &tpName)
         return QVariant::Double;
     if (typeName == QLatin1String("blob"))
         return QVariant::ByteArray;
+    if (typeName == QLatin1String("boolean")
+        || typeName == QLatin1String("bool"))
+        return QVariant::Bool;
     return QVariant::String;
 }
 
@@ -105,6 +109,35 @@ static QSqlError qMakeError(sqlite3 *access, const QString &descr, QSqlError::Er
                      QString(reinterpret_cast<const QChar *>(sqlite3_errmsg16(access))),
                      type, errorCode);
 }
+
+class QSQLiteResultPrivate;
+
+class QSQLiteResult : public QSqlCachedResult
+{
+    friend class QSQLiteDriver;
+    friend class QSQLiteResultPrivate;
+public:
+    explicit QSQLiteResult(const QSQLiteDriver* db);
+    ~QSQLiteResult();
+    QVariant handle() const;
+
+protected:
+    bool gotoNext(QSqlCachedResult::ValueCache& row, int idx);
+    bool reset(const QString &query);
+    bool prepare(const QString &query);
+    bool exec();
+    int size();
+    int numRowsAffected();
+    QVariant lastInsertId() const;
+    QSqlRecord record() const;
+#if (QT_VERSION >= 0x050000)
+    void detachFromResultSet();
+#endif
+    void virtual_hook(int id, void *data);
+
+private:
+    QSQLiteResultPrivate* d;
+};
 
 class QSQLiteDriverPrivate
 {
@@ -206,8 +239,7 @@ void QSQLiteResultPrivate::initColumns(bool emptyResultset)
             }
         }
 
-        int dotIdx = colName.lastIndexOf(QLatin1Char('.'));
-        QSqlField fld(colName.mid(dotIdx == -1 ? 0 : dotIdx + 1), fieldType);
+        QSqlField fld(colName, fieldType);
         fld.setSqlType(stp);
         rInf.append(fld);
     }
@@ -420,6 +452,7 @@ bool QSQLiteResult::exec()
                                             ba->size(), SQLITE_STATIC);
                     break; }
                 case QVariant::Int:
+                case QVariant::Bool:
                     res = sqlite3_bind_int(d->stmt, i + 1, value.toInt());
                     break;
                 case QVariant::Double:
@@ -429,6 +462,20 @@ bool QSQLiteResult::exec()
                 case QVariant::LongLong:
                     res = sqlite3_bind_int64(d->stmt, i + 1, value.toLongLong());
                     break;
+                case QVariant::DateTime: {
+                    const QDateTime dateTime = value.toDateTime();
+                    const QString str = dateTime.toString(QStringLiteral("yyyy-MM-ddThh:mm:ss.zzz"));
+                    res = sqlite3_bind_text16(d->stmt, i + 1, str.utf16(),
+                                              str.size() * sizeof(ushort), SQLITE_TRANSIENT);
+                    break;
+                }
+                case QVariant::Time: {
+                    const QTime time = value.toTime();
+                    const QString str = time.toString(QStringLiteral("hh:mm:ss.zzz"));
+                    res = sqlite3_bind_text16(d->stmt, i + 1, str.utf16(),
+                                              str.size() * sizeof(ushort), SQLITE_TRANSIENT);
+                    break;
+                }
                 case QVariant::String: {
                     // lifetime of string == lifetime of its qvariant
                     const QString *str = static_cast<const QString*>(value.constData());
@@ -516,13 +563,13 @@ QVariant QSQLiteResult::handle() const
 QSQLiteDriver::QSQLiteDriver(QObject * parent)
     : QSqlDriver(parent)
 {
-    d = new QSQLiteDriverPrivate();
+    d = new QSQLiteDriverPrivate;
 }
 
 QSQLiteDriver::QSQLiteDriver(sqlite3 *connection, QObject *parent)
     : QSqlDriver(parent)
 {
-    d = new QSQLiteDriverPrivate();
+    d = new QSQLiteDriverPrivate;
     d->access = connection;
     setOpen(true);
     setOpenError(false);
@@ -552,6 +599,7 @@ bool QSQLiteDriver::hasFeature(DriverFeature f) const
     case BatchOperations:
     case EventNotifications:
     case MultipleResultSets:
+    case CancelQuery:
         return false;
     }
     return false;
@@ -563,46 +611,91 @@ bool QSQLiteDriver::hasFeature(DriverFeature f) const
 */
 bool QSQLiteDriver::open(const QString & db, const QString &, const QString &password, const QString &, int, const QString &conOpts)
 {
-    if (isOpen())
+    if (isOpen()) {
         close();
+    }
 
-    if (db.isEmpty())
-        return false;
+    enum KEY_OP {
+        OPEN_WITH_KEY = 0,
+        UPDATE_KEY,
+        REMOVE_KEY
+    };
+
+    int timeOut = 5000;
+    int keyOp = OPEN_WITH_KEY;
     bool sharedCache = false;
-    int   rekey  = 0;
-    int openMode = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, timeOut=5000;
-    QStringList opts=QString(conOpts).remove(QLatin1Char(' ')).split(QLatin1Char(';'));
-    foreach(const QString &option, opts) {
+    bool openReadOnlyOption = false;
+    bool openUriOption = false;
+
+    const QStringList opts = QString(conOpts).remove(QLatin1Char(' ')).split(QLatin1Char(';'));
+    foreach (const QString &option, opts) {
         if (option.startsWith(QLatin1String("QSQLITE_BUSY_TIMEOUT="))) {
             bool ok;
-            int nt = option.mid(21).toInt(&ok);
+            const int nt = option.midRef(21).toInt(&ok);
             if (ok)
                 timeOut = nt;
         }
-        if (option == QLatin1String("QSQLITE_OPEN_READONLY"))
-            openMode = SQLITE_OPEN_READONLY;
-        if (option == QLatin1String("QSQLITE_ENABLE_SHARED_CACHE"))
+        if (option == QLatin1String("QSQLITE_OPEN_READONLY")) {
+            openReadOnlyOption = true;
+        } else if (option == QLatin1String("QSQLITE_OPEN_URI")) {
+            openUriOption = true;
+        } else if (option == QLatin1String("QSQLITE_ENABLE_SHARED_CACHE")) {
             sharedCache = true;
-        if (option == QLatin1String("QSQLITE_CREATE_KEY")) rekey =1;
-           else if(option == QLatin1String("QSQLITE_REMOVE_KEY")) rekey =2;
+        } else if (option == QLatin1String("QSQLITE_CREATE_KEY")) {
+            keyOp = UPDATE_KEY;
+        } else if (option == QLatin1String("QSQLITE_REMOVE_KEY")) {
+            keyOp = REMOVE_KEY;
+        }
     }
+
+    int openMode = (openReadOnlyOption ? SQLITE_OPEN_READONLY : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE));
+    if (openUriOption)
+        openMode |= SQLITE_OPEN_URI;
 
     sqlite3_enable_shared_cache(sharedCache);
 
-    if (sqlite3_open_v2(db.toUtf8().constData(), &d->access, openMode, NULL) == SQLITE_OK) {
+    if (sqlite3_open_v2(db.toUtf8().constData(), &d->access, openMode, nullptr) == SQLITE_OK) {
         sqlite3_busy_timeout(d->access, timeOut);
         setOpen(true);
         setOpenError(false);
         if (!(password.isNull() || password.isEmpty())) {
-            if(rekey == 0) { sqlite3_key(d->access, password.toUtf8().constData(), password.size());}
-            if(rekey == 1) { if(SQLITE_OK !=sqlite3_rekey(d->access, password.toUtf8().constData(), password.size())) return false;}
-            if(rekey == 2) {
-            	             sqlite3_key(d->access, password.toUtf8().constData(), password.size());
-            	             sqlite3_rekey(d->access, nullptr, 0);
+            switch (keyOp) {
+            case OPEN_WITH_KEY:
+            {
+                sqlite3_key(d->access, password.toUtf8().constData(), password.size());
+                int result = sqlite3_exec(d->access, QString("SELECT count(*) FROM sqlite_master LIMIT 1").toStdString().data(), nullptr, nullptr, nullptr);
+                if (result != SQLITE_OK) {
+                    setLastError(qMakeError(d->access, tr("Invalid password"),
+                                 QSqlError::ConnectionError));
+                    setOpenError(true);
+                    return false;
+                }
+                break;
+            }
+            case UPDATE_KEY:
+            {
+                if (SQLITE_OK != sqlite3_rekey(d->access, password.toUtf8().constData(), password.size())) {
+                    return false;
+                }
+                break;
+            }
+            case REMOVE_KEY:
+            {
+                // verify old password
+                sqlite3_key(d->access, password.toUtf8().constData(), password.size());
+                // set new password to null
+                sqlite3_rekey(d->access, nullptr, 0);
+                break;
+            }
             }
         }
         return true;
     } else {
+        if (d->access) {
+            sqlite3_close(d->access);
+            d->access = 0;
+        }
+
         setLastError(qMakeError(d->access, tr("Error opening database"),
                      QSqlError::ConnectionError));
         setOpenError(true);
@@ -613,8 +706,9 @@ bool QSQLiteDriver::open(const QString & db, const QString &, const QString &pas
 void QSQLiteDriver::close()
 {
     if (isOpen()) {
-        foreach (QSQLiteResult *result, d->results)
+        foreach (QSQLiteResult *result, d->results) {
             result->d->finalize();
+        }
 
         if (sqlite3_close(d->access) != SQLITE_OK)
             setLastError(qMakeError(d->access, tr("Error closing database"),

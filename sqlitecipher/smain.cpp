@@ -1,6 +1,6 @@
 #include <qsqldriverplugin.h>
 #include <qstringlist.h>                                                                                                                           
-#include "qsql_sqlite.h"
+#include "qsql_sqlite_p.h"
 
 QT_BEGIN_NAMESPACE
 
