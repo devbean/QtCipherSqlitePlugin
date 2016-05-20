@@ -37,60 +37,65 @@
 **
 ****************************************************************************/
 
-#include <qsqldriverplugin.h>
-#include <qstringlist.h>                                                                                                                           
-#include "qsql_sqlite_p.h"
+#ifndef QSQLITEDRIVER_H
+#define QSQLITEDRIVER_H
+
+#include <QtSql/QSqlDriver>
+
+#include "sqlitechipher_global.h"
+
+struct sqlite3;
+
+#ifdef QT_PLUGIN
+#define Q_EXPORT_SQLDRIVER_SQLITE
+#else
+#define Q_EXPORT_SQLDRIVER_SQLITE Q_SQL_EXPORT
+#endif
+
+#if (QT_VERSION < 0x050000)
+QT_BEGIN_HEADER
+#endif
 
 QT_BEGIN_NAMESPACE
 
-/*
- * Change the driver name if you like.
- */
-static const char DriverName[] = "SQLITECIPHER";
+class QSqlResult;
+class QSQLiteDriverPrivate;
 
-class SqliteCipherDriverPlugin : public QSqlDriverPlugin
+class Q_EXPORT_SQLDRIVER_SQLITE QSQLiteDriver : public QSqlDriver
 {
-#if (QT_VERSION >= 0x050000)
     Q_OBJECT
-    Q_PLUGIN_METADATA(IID "org.qt-project.Qt.QSqlDriverFactoryInterface" FILE "SqliteCipherDriverPlugin.json")
-#endif
+    friend class QSQLiteResult;
 public:
-    SqliteCipherDriverPlugin();
- 
-    QSqlDriver* create(const QString &);
-#if (QT_VERSION < 0x050000)
-    QStringList keys() const;
-#endif
+    explicit QSQLiteDriver(QObject *parent = 0);
+    explicit QSQLiteDriver(sqlite3 *connection, QObject *parent = 0);
+    ~QSQLiteDriver();
+    bool hasFeature(DriverFeature f) const DECL_OVERRIDE;
+    bool open(const QString & db,
+                   const QString & user,
+                   const QString & password,
+                   const QString & host,
+                   int port,
+                   const QString & connOpts) DECL_OVERRIDE;
+    void close() DECL_OVERRIDE;
+    QSqlResult *createResult() const DECL_OVERRIDE;
+    bool beginTransaction() DECL_OVERRIDE;
+    bool commitTransaction() DECL_OVERRIDE;
+    bool rollbackTransaction() DECL_OVERRIDE;
+    QStringList tables(QSql::TableType) const DECL_OVERRIDE;
+
+    QSqlRecord record(const QString& tablename) const DECL_OVERRIDE;
+    QSqlIndex primaryIndex(const QString &table) const DECL_OVERRIDE;
+    QVariant handle() const DECL_OVERRIDE;
+    QString escapeIdentifier(const QString &identifier, IdentifierType) const DECL_OVERRIDE;
+
+private:
+    QSQLiteDriverPrivate *d;
 };
-
-SqliteCipherDriverPlugin::SqliteCipherDriverPlugin()
-    : QSqlDriverPlugin()
-{
-}
-
-QSqlDriver* SqliteCipherDriverPlugin::create(const QString &name)
-{
-    if (name == QLatin1String(DriverName)) {
-        QSQLiteDriver* driver = new QSQLiteDriver();
-        return driver;
-    }
-    return 0;
-}
-
-#if (QT_VERSION < 0x050000)
-QStringList SqliteCipherDriverPlugin::keys() const
-{
-    QStringList l;
-    l  << QLatin1String(DriverName);
-    return l;
-}
-#endif
-
-#if (QT_VERSION < 0x050000)
-Q_EXPORT_STATIC_PLUGIN(SqliteCipherDriverPlugin)
-Q_EXPORT_PLUGIN2(qsqlite, SqliteCipherDriverPlugin)
-#endif
 
 QT_END_NAMESPACE
 
-#include "smain.moc"
+#if (QT_VERSION < 0x050000)
+QT_END_HEADER
+#endif
+
+#endif // QSQLITEDRIVER_H

@@ -11,8 +11,9 @@ int main(int argc, char *argv[])
 
     QSqlDatabase dbconn = QSqlDatabase::addDatabase("SQLITECIPHER");
     dbconn.setDatabaseName("test_c.db");
+    dbconn.setPassword("test");
     if (!dbconn.open()) {
-        qDebug() << "Can not open connection.";
+        qDebug() << "Can not open connection: " << dbconn.lastError().driverText();
         exit(CONNECTION_FAILED);
     }
 
@@ -21,10 +22,22 @@ int main(int argc, char *argv[])
     query.exec("insert into mapping values (1, 'AAA')");
     query.exec("insert into mapping values (2, 'BBB')");
     query.exec("insert into mapping values (3, 'CCC')");
-    query.exec("insert into mapping values (3, 'DDD')");
-    query.exec("insert into mapping values (4, 'EEE')");
-    query.exec("insert into mapping values (5, 'FFF')");
-    query.exec("insert into mapping values (6, 'GGG')");
+    query.exec("insert into mapping values (4, 'DDD')");
+    query.exec("insert into mapping values (5, 'EEE')");
+    query.exec("insert into mapping values (6, 'FFF')");
+    query.exec("insert into mapping values (7, 'GGG')");
+    query.exec("select id, name from mapping");
+    while (query.next()) {
+        qDebug() << query.value(0).toInt() << ": " << query.value(1).toString();
+    }
+    qDebug() << "----------" << endl;
+    query.exec("update mapping set name='ZZZ' where id=1");
+    query.exec("select id, name from mapping");
+    while (query.next()) {
+        qDebug() << query.value(0).toInt() << ": " << query.value(1).toString();
+    }
+    qDebug() << "----------" << endl;
+    query.exec("delete from mapping where id=4");
     query.exec("select id, name from mapping");
     while (query.next()) {
         qDebug() << query.value(0).toInt() << ": " << query.value(1).toString();
