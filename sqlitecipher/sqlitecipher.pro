@@ -12,7 +12,6 @@ android {
 
 QT      *= core sql
 
-#include($$PWD/qt_p.pri)
 include($$PWD/sqlite3/sqlite3.pri)
 
 target.path = $$[QT_INSTALL_PLUGINS]/sqldrivers/
