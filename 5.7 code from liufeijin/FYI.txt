@@ -1,0 +1,1 @@
+this suggested  code  from LiuFeijin build with Qt5.6 without success, need more investigation
