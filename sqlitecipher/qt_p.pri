@@ -13,7 +13,7 @@
 
 # Qt5
 greaterThan(QT_MAJOR_VERSION, 4) {
-    QT5_SRC_PATH=
+    QT5_SRC_PATH=D:\Develop\Qt\Qt5.5.1\5.5\Src\qtbase\src
     isEmpty(QT5_SRC_PATH) {
         error(Set QT5_SRC_PATH in qt_p.pri first)
     }

@@ -37,11 +37,12 @@
 **
 ****************************************************************************/
 
-#ifndef QSQL_SQLITE_H
-#define QSQL_SQLITE_H
+#ifndef QSQLITEDRIVER_H
+#define QSQLITEDRIVER_H
 
 #include <QtSql/QSqlDriver>
-#include <QtSql/QSqlResult>
+
+#include "sqlitechipher_global.h"
 
 struct sqlite3;
 
@@ -55,15 +56,10 @@ struct sqlite3;
 QT_BEGIN_HEADER
 #endif
 
-#if (QT_VERSION < 0x050000)
-#define DECL_OVERRIDE
-#else
-#define DECL_OVERRIDE Q_DECL_OVERRIDE
-#endif
-
 QT_BEGIN_NAMESPACE
+
+class QSqlResult;
 class QSQLiteDriverPrivate;
-class QSQLiteDriver;
 
 class Q_EXPORT_SQLDRIVER_SQLITE QSQLiteDriver : public QSqlDriver
 {
@@ -102,4 +98,4 @@ QT_END_NAMESPACE
 QT_END_HEADER
 #endif
 
-#endif // QSQL_SQLITE_H
+#endif // QSQLITEDRIVER_H

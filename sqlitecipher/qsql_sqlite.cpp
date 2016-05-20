@@ -1,4 +1,4 @@
-﻿/****************************************************************************
+/****************************************************************************
 **
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
@@ -37,33 +37,22 @@
 **
 ****************************************************************************/
 
-#include "qsql_sqlite_p.h"
-
 #include <QCoreApplication>
 #include <QDateTime>
-#include <QVariant>
 #include <QSqlError>
 #include <QSqlField>
 #include <QSqlIndex>
 #include <QSqlQuery>
-#include <QStringList>
-#include <QVector>
-#include <QDebug>
+#include <QVariant>
 
-#include <qsqlcachedresult_p.h>
+#include "qsqlcachedresult_p.h"
+#include "qsql_sqlite_p.h"
 
 #if defined Q_OS_WIN
 # include <qt_windows.h>
 #else
 # include <unistd.h>
 #endif
-
-#define CHECK_SQLITE_KEY \
-    do { \
-        sqlite3_key(d->access, password.toUtf8().constData(), password.size()); \
-        int result = sqlite3_exec(d->access, QString("SELECT count(*) FROM sqlite_master LIMIT 1").toUtf8().constData(), nullptr, nullptr, nullptr); \
-        if (result != SQLITE_OK) { setLastError(qMakeError(d->access, tr("Invalid password"), QSqlError::ConnectionError)); setOpenError(true); return false; } \
-    } while (0)
 
 extern "C" {
 #include "sqlite3.h"
@@ -76,9 +65,16 @@ Q_DECLARE_OPAQUE_POINTER(sqlite3*)
 Q_DECLARE_OPAQUE_POINTER(sqlite3_stmt*)
 #endif
 
+#define CHECK_SQLITE_KEY \
+    do { \
+        sqlite3_key(d->access, password.toUtf8().constData(), password.size()); \
+        int result = sqlite3_exec(d->access, QString("SELECT count(*) FROM sqlite_master LIMIT 1").toUtf8().constData(), nullptr, nullptr, nullptr); \
+        if (result != SQLITE_OK) { setLastError(qMakeError(d->access, tr("Invalid password"), QSqlError::ConnectionError)); setOpenError(true); return false; } \
+    } while (0)
+
 QT_BEGIN_NAMESPACE
 
-static QString _q_escapeIdentifier(const QString &identifier) 
+static QString _q_escapeIdentifier(const QString &identifier)
 {
     QString res = identifier;
     if(!identifier.isEmpty() && identifier.left(1) != QString(QLatin1Char('"')) && identifier.right(1) != QString(QLatin1Char('"')) ) {
