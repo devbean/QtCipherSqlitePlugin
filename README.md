@@ -10,3 +10,5 @@ SQLite is a software library that implements a self-contained, serverless, zero-
 wxSQLite3 is a C++ wrapper around the public domain SQLite 3.x database and is specifically designed for use in programs based on the wxWidgets library. wxSQLite3 includes an optional extension for SQLite supporting key based database file encryption using 128 bit AES encryption. You could find more details at http://utelle.github.io/wxsqlite3. wxSQLite3 is released under wxWindows Library Licence.
 
 You could find how to compile this plugin at http://qtciphersqliteplugin.galaxyworld.org.
+
+Please read [Wiki](https://github.com/devbean/QtCipherSqlitePlugin/wiki) for more details.
