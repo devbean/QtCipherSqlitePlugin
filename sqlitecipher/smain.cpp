@@ -39,7 +39,7 @@
 
 #include <qsqldriverplugin.h>
 #include <qstringlist.h>                                                                                                                           
-#include "qsql_sqlite_p.h"
+#include "sqlitecipher_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -71,7 +71,7 @@ SqliteCipherDriverPlugin::SqliteCipherDriverPlugin()
 QSqlDriver* SqliteCipherDriverPlugin::create(const QString &name)
 {
     if (name == QLatin1String(DriverName)) {
-        QSQLiteDriver* driver = new QSQLiteDriver();
+        SQLiteCipherDriver* driver = new SQLiteCipherDriver();
         return driver;
     }
     return 0;

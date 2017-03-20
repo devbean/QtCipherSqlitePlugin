@@ -20,13 +20,13 @@ target.path = $$[QT_INSTALL_PLUGINS]/sqldrivers/
 INSTALLS += target
 
 HEADERS  += \
-    $$PWD/qsql_sqlite_p.h \
-    $$PWD/qsqlcachedresult_p.h \
-    $$PWD/sqlitechipher_global.h
+    $$PWD/sqlitecipher_p.h \
+    $$PWD/sqlcachedresult_p.h \
+    $$PWD/sqlitecipher_global.h
 SOURCES  += \
     $$PWD/smain.cpp \
-    $$PWD/qsql_sqlite.cpp \
-    $$PWD/qsqlcachedresult.cpp
+    $$PWD/sqlitecipher.cpp \
+    $$PWD/sqlcachedresult.cpp
 OTHER_FILES += SqliteCipherDriverPlugin.json
 
 !system-sqlite:!contains( LIBS, .*sqlite.* ) {
