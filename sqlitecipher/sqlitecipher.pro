@@ -12,6 +12,8 @@ android {
 
 QT      *= core sql
 
+CONFIG  += c++11 plugin
+
 include($$PWD/sqlite3/sqlite3.pri)
 
 target.path = $$[QT_INSTALL_PLUGINS]/sqldrivers/

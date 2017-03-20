@@ -1,3 +1,11 @@
+## 0.6 2017-03-20
+* Fix a crash bug compiling with gcc.
+* Update sqlite to 3.17.0
+* Update wxSqlite3 to 3.5.2
+
+## 0.5 2016-05-20
+* Copy private Qt sources to this project.
+
 ## 0.4 2016-05-19
 * Update sqlite to 3.12.2
 * Update wxSqlite3 to 3.3.1

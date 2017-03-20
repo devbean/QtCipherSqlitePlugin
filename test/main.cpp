@@ -6,6 +6,7 @@
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
+    Q_UNUSED(app);
 
     qDebug() << QSqlDatabase::drivers();
 
@@ -45,5 +46,5 @@ int main(int argc, char *argv[])
     query.exec("drop table mapping");
     dbconn.close();
 
-    return app.exec();
+    return 0;
 }

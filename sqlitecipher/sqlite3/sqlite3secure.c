@@ -1,11 +1,26 @@
-// To enable the extension functions define SQLITE_ENABLE_EXTFUNC on compiling this module
-#ifdef SQLITE_ENABLE_EXTFUNC
+/*
+** Enable SQLite debug assertions if requested
+*/
+#ifndef SQLITE_DEBUG
+#if defined(SQLITE_ENABLE_DEBUG) && (SQLITE_ENABLE_DEBUG == 1)
+#define SQLITE_DEBUG 1
+#endif
+#endif
+
+/*
+** To enable the extension functions define SQLITE_ENABLE_EXTFUNC on compiling this module
+** To enable the reading CSV files define SQLITE_ENABLE_CSV on compiling this module
+** To enable the SHA3 support define SQLITE_ENABLE_SHA3 on compiling this module
+*/
+#if defined(SQLITE_ENABLE_EXTFUNC) || defined(SQLITE_ENABLE_CSV) || defined(SQLITE_ENABLE_SHA3)
 #define sqlite3_open    sqlite3_open_internal
 #define sqlite3_open16  sqlite3_open16_internal
 #define sqlite3_open_v2 sqlite3_open_v2_internal
 #endif
 
-// Enable the user authentication feature
+/*
+** Enable the user authentication feature
+*/
 #ifndef SQLITE_USER_AUTHENTICATION
 #define SQLITE_USER_AUTHENTICATION 1
 #endif
@@ -17,7 +32,7 @@
 #include "userauth.c"
 #endif
 
-#ifdef SQLITE_ENABLE_EXTFUNC
+#if defined(SQLITE_ENABLE_EXTFUNC) || defined(SQLITE_ENABLE_CSV) || defined(SQLITE_ENABLE_SHA3)
 #undef sqlite3_open
 #undef sqlite3_open16
 #undef sqlite3_open_v2
@@ -63,9 +78,28 @@ void mySqlite3PagerSetCodec(
 
 #endif
 
+/*
+** Extension functions
+*/
 #ifdef SQLITE_ENABLE_EXTFUNC
-
 #include "extensionfunctions.c"
+#endif
+
+/*
+** CSV import
+*/
+#ifdef SQLITE_ENABLE_CSV
+#include "csv.c"
+#endif
+
+/*
+** SHA3
+*/
+#ifdef SQLITE_ENABLE_SHA3
+#include "shathree.c"
+#endif
+
+#if defined(SQLITE_ENABLE_EXTFUNC) || defined(SQLITE_ENABLE_CSV) || defined(SQLITE_ENABLE_SHA3)
 
 SQLITE_API int sqlite3_open(
   const char *filename,   /* Database filename (UTF-8) */
@@ -75,7 +109,15 @@ SQLITE_API int sqlite3_open(
   int ret = sqlite3_open_internal(filename, ppDb);
   if (ret == 0)
   {
+#ifdef SQLITE_ENABLE_EXTFUNC
     RegisterExtensionFunctions(*ppDb);
+#endif
+#ifdef SQLITE_ENABLE_CSV
+    sqlite3_csv_init(*ppDb, NULL, NULL);
+#endif
+#ifdef SQLITE_ENABLE_SHA3
+    sqlite3_shathree_init(*ppDb, NULL, NULL);
+#endif
   }
   return ret;
 }
@@ -88,7 +130,12 @@ SQLITE_API int sqlite3_open16(
   int ret = sqlite3_open16_internal(filename, ppDb);
   if (ret == 0)
   {
+#ifdef SQLITE_ENABLE_EXTFUNC
     RegisterExtensionFunctions(*ppDb);
+#endif
+#ifdef SQLITE_ENABLE_CSV
+    sqlite3_csv_init(*ppDb, NULL, NULL);
+#endif
   }
   return ret;
 }
@@ -103,7 +150,12 @@ SQLITE_API int sqlite3_open_v2(
   int ret = sqlite3_open_v2_internal(filename, ppDb, flags, zVfs);
   if (ret == 0)
   {
+#ifdef SQLITE_ENABLE_EXTFUNC
     RegisterExtensionFunctions(*ppDb);
+#endif
+#ifdef SQLITE_ENABLE_CSV
+    sqlite3_csv_init(*ppDb, NULL, NULL);
+#endif
   }
   return ret;
 }
