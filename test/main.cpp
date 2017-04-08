@@ -1,6 +1,12 @@
 #include <QtSql>
 #include <QCoreApplication>
 
+#ifdef Q_OS_IOS
+#  include <QtPlugin>
+
+Q_IMPORT_PLUGIN(SqliteCipherDriverPlugin)
+#endif
+
 #define CONNECTION_FAILED -1
 
 int main(int argc, char *argv[])
@@ -9,9 +15,12 @@ int main(int argc, char *argv[])
     Q_UNUSED(app);
 
     qDebug() << QSqlDatabase::drivers();
+    QString dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    QString DB_FILE_PATH = dir + "/test_c.db";
+    qDebug() << "DB File Path is:" << DB_FILE_PATH;
 
-    QSqlDatabase dbconn = QSqlDatabase::addDatabase("SQLITECIPHER");
-    dbconn.setDatabaseName("test_c.db");
+    QSqlDatabase dbconn = QSqlDatabase::addDatabase("QSQLITE");
+    dbconn.setDatabaseName(DB_FILE_PATH);
     dbconn.setPassword("test");
     if (!dbconn.open()) {
         qDebug() << "Can not open connection: " << dbconn.lastError().driverText();

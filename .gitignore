@@ -23,3 +23,4 @@ ipch/
 /libs/
 Makefile
 Win32/
+\.DS_Store
