@@ -39,13 +39,22 @@
 
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QScopedValueRollback>
 #include <QSqlError>
 #include <QSqlField>
 #include <QSqlIndex>
 #include <QSqlQuery>
+#include <QtSql/private/qsqlcachedresult_p.h>
+#include <QtSql/private/qsqldriver_p.h>
+#if QT_CONFIG(regularexpression)
+#include <qcache.h>
+#include <qregularexpression.h>
+#endif
+#if QT_CONFIG(timezone)
+#include <QTimeZone>
+#endif
 #include <QVariant>
 
-#include "sqlcachedresult_p.h"
 #include "sqlitecipher_p.h"
 
 #if defined Q_OS_WIN
@@ -67,9 +76,6 @@ Q_DECLARE_OPAQUE_POINTER(sqlite3_stmt*)
 
 #define CHECK_SQLITE_KEY \
     do { \
-        sqlite3_key(d->access, password.toUtf8().constData(), password.size()); \
-        int result = sqlite3_exec(d->access, QString("SELECT count(*) FROM sqlite_master LIMIT 1").toUtf8().constData(), nullptr, nullptr, nullptr); \
-        if (result != SQLITE_OK) { setLastError(qMakeError(d->access, tr("Invalid password"), QSqlError::ConnectionError)); setOpenError(true); return false; } \
     } while (0)
 
 QT_BEGIN_NAMESPACE
@@ -77,7 +83,7 @@ QT_BEGIN_NAMESPACE
 static QString _q_escapeIdentifier(const QString &identifier)
 {
     QString res = identifier;
-    if(!identifier.isEmpty() && identifier.left(1) != QString(QLatin1Char('"')) && identifier.right(1) != QString(QLatin1Char('"')) ) {
+    if(!identifier.isEmpty() && !identifier.startsWith(QLatin1Char('"')) && !identifier.endsWith(QLatin1Char('"'))) {
         res.replace(QLatin1Char('"'), QLatin1String("\"\""));
         res.prepend(QLatin1Char('"')).append(QLatin1Char('"'));
         res.replace(QLatin1Char('.'), QLatin1String("\".\""));
@@ -110,59 +116,58 @@ static QSqlError qMakeError(sqlite3 *access, const QString &descr, QSqlError::Er
 {
     return QSqlError(descr,
                      QString(reinterpret_cast<const QChar *>(sqlite3_errmsg16(access))),
-                     type, errorCode);
+                     type, QString::number(errorCode));
 }
 
 class SQLiteResultPrivate;
 
-class SQLiteResult : public SqlCachedResult
+class SQLiteResult : public QSqlCachedResult
 {
+    Q_DECLARE_PRIVATE(SQLiteResult)
     friend class SQLiteCipherDriver;
-    friend class SQLiteResultPrivate;
 public:
     explicit SQLiteResult(const SQLiteCipherDriver* db);
     ~SQLiteResult();
-    QVariant handle() const;
+    QVariant handle() const DECL_OVERRIDE;
 
 protected:
-    bool gotoNext(SqlCachedResult::ValueCache& row, int idx);
-    bool reset(const QString &query);
-    bool prepare(const QString &query);
-    bool exec();
-    int size();
-    int numRowsAffected();
-    QVariant lastInsertId() const;
-    QSqlRecord record() const;
+    bool gotoNext(QSqlCachedResult::ValueCache& row, int idx) DECL_OVERRIDE;
+    bool reset(const QString &query) DECL_OVERRIDE;
+    bool prepare(const QString &query) DECL_OVERRIDE;
+    bool execBatch(bool arrayBind) DECL_OVERRIDE;
+    bool exec() DECL_OVERRIDE;
+    int size() DECL_OVERRIDE;
+    int numRowsAffected() DECL_OVERRIDE;
+    QVariant lastInsertId() const DECL_OVERRIDE;
+    QSqlRecord record() const DECL_OVERRIDE;
 #if (QT_VERSION >= 0x050000)
-    void detachFromResultSet();
+    void detachFromResultSet() DECL_OVERRIDE;
 #endif
-    void virtual_hook(int id, void *data);
-
-private:
-    SQLiteResultPrivate* d;
+    void virtual_hook(int id, void *data) DECL_OVERRIDE;
 };
 
-class SQLiteCipherDriverPrivate
+class SQLiteCipherDriverPrivate : public QSqlDriverPrivate
 {
+    Q_DECLARE_PUBLIC(SQLiteCipherDriver)
 public:
-    inline SQLiteCipherDriverPrivate() : access(0) {}
+    inline SQLiteCipherDriverPrivate() : QSqlDriverPrivate(), access(0) {}
     sqlite3 *access;
     QList <SQLiteResult *> results;
+    QStringList notificationid;
 };
 
 
-class SQLiteResultPrivate
+class SQLiteResultPrivate : public QSqlCachedResultPrivate
 {
+    Q_DECLARE_PUBLIC(SQLiteResult)
 public:
-    SQLiteResultPrivate(SQLiteResult *res);
+    Q_DECLARE_SQLDRIVER_PRIVATE(SQLiteCipherDriver)
+    SQLiteResultPrivate(SQLiteResult *q, const SQLiteCipherDriver *drv);
     void cleanup();
-    bool fetchNext(SqlCachedResult::ValueCache &values, int idx, bool initialFetch);
+    bool fetchNext(QSqlCachedResult::ValueCache &values, int idx, bool initialFetch);
     // initializes the recordInfo and the cache
     void initColumns(bool emptyResultset);
     void finalize();
-
-    SQLiteResult* q;
-    sqlite3 *access;
 
     sqlite3_stmt *stmt;
 
@@ -172,13 +177,17 @@ public:
     QVector<QVariant> firstRow;
 };
 
-SQLiteResultPrivate::SQLiteResultPrivate(SQLiteResult* res) : q(res), access(0),
-    stmt(0), skippedStatus(false), skipRow(false)
+SQLiteResultPrivate::SQLiteResultPrivate(SQLiteResult *q, const SQLiteCipherDriver *drv)
+    : QSqlCachedResultPrivate(q, drv),
+      stmt(0),
+      skippedStatus(false),
+      skipRow(false)
 {
 }
 
 void SQLiteResultPrivate::cleanup()
 {
+    Q_Q(SQLiteResult);
     finalize();
     rInf.clear();
     skippedStatus = false;
@@ -199,6 +208,7 @@ void SQLiteResultPrivate::finalize()
 
 void SQLiteResultPrivate::initColumns(bool emptyResultset)
 {
+    Q_Q(SQLiteResult);
     int nCols = sqlite3_column_count(stmt);
     if (nCols <= 0)
         return;
@@ -209,6 +219,9 @@ void SQLiteResultPrivate::initColumns(bool emptyResultset)
         QString colName = QString(reinterpret_cast<const QChar *>(
                     sqlite3_column_name16(stmt, i))
                     ).remove(QLatin1Char('"'));
+        const QString tableName = QString(reinterpret_cast<const QChar *>(
+                            sqlite3_column_table_name16(stmt, i))
+                            ).remove(QLatin1Char('"'));
 
         // must use typeName for resolving the type to match SQLiteCipherDriver::record
         QString typeName = QString(reinterpret_cast<const QChar *>(
@@ -242,14 +255,15 @@ void SQLiteResultPrivate::initColumns(bool emptyResultset)
             }
         }
 
-        QSqlField fld(colName, fieldType);
+        QSqlField fld(colName, fieldType, tableName);
         fld.setSqlType(stp);
         rInf.append(fld);
     }
 }
 
-bool SQLiteResultPrivate::fetchNext(SqlCachedResult::ValueCache &values, int idx, bool initialFetch)
+bool SQLiteResultPrivate::fetchNext(QSqlCachedResult::ValueCache &values, int idx, bool initialFetch)
 {
+    Q_Q(SQLiteResult);
     int res;
     int i;
 
@@ -332,7 +346,7 @@ bool SQLiteResultPrivate::fetchNext(SqlCachedResult::ValueCache &values, int idx
         // SQLITE_ERROR is a generic error code and we must call sqlite3_reset()
         // to get the specific error message.
         res = sqlite3_reset(stmt);
-        q->setLastError(qMakeError(access, QCoreApplication::translate("SQLiteResult",
+        q->setLastError(qMakeError(drv_d_func()->access, QCoreApplication::translate("SQLiteResult",
                         "Unable to fetch row"), QSqlError::ConnectionError, res));
         q->setAt(QSql::AfterLastRow);
         return false;
@@ -340,7 +354,7 @@ bool SQLiteResultPrivate::fetchNext(SqlCachedResult::ValueCache &values, int idx
     case SQLITE_BUSY:
     default:
         // something wrong, don't get col info, but still return false
-        q->setLastError(qMakeError(access, QCoreApplication::translate("SQLiteResult",
+        q->setLastError(qMakeError(drv_d_func()->access, QCoreApplication::translate("SQLiteResult",
                         "Unable to fetch row"), QSqlError::ConnectionError, res));
         sqlite3_reset(stmt);
         q->setAt(QSql::AfterLastRow);
@@ -350,26 +364,24 @@ bool SQLiteResultPrivate::fetchNext(SqlCachedResult::ValueCache &values, int idx
 }
 
 SQLiteResult::SQLiteResult(const SQLiteCipherDriver* db)
-    : SqlCachedResult(db)
+    : QSqlCachedResult(*new SQLiteResultPrivate(this, db))
 {
-    d = new SQLiteResultPrivate(this);
-    d->access = db->d->access;
-    db->d->results.append(this);
+    Q_D(SQLiteResult);
+    const_cast<SQLiteCipherDriverPrivate*>(d->drv_d_func())->results.append(this);
 }
 
 SQLiteResult::~SQLiteResult()
 {
-    const SQLiteCipherDriver * sqlDriver = qobject_cast<const SQLiteCipherDriver *>(driver());
-    if (sqlDriver)
-        sqlDriver->d->results.removeOne(this);
+    Q_D(SQLiteResult);
+    if (d->drv_d_func())
+        const_cast<SQLiteCipherDriverPrivate*>(d->drv_d_func())->results.removeOne(this);
     d->cleanup();
-    delete d;
 }
 
 void SQLiteResult::virtual_hook(int id, void *data)
 {
 #if (QT_VERSION >= 0x050000)
-    SqlCachedResult::virtual_hook(id, data);
+    QSqlCachedResult::virtual_hook(id, data);
 #else
     switch (id) {
     case QSqlResult::DetachFromResultSet:
@@ -391,6 +403,7 @@ bool SQLiteResult::reset(const QString &query)
 
 bool SQLiteResult::prepare(const QString &query)
 {
+    Q_D(SQLiteResult);
     if (!driver() || !driver()->isOpen() || driver()->isOpenError())
         return false;
 
@@ -401,7 +414,7 @@ bool SQLiteResult::prepare(const QString &query)
     const void *pzTail = NULL;
 
 #if (SQLITE_VERSION_NUMBER >= 3003011)
-    int res = sqlite3_prepare16_v2(d->access, query.constData(), (query.size() + 1) * sizeof(QChar),
+    int res = sqlite3_prepare16_v2(d->drv_d_func()->access, query.constData(), (query.size() + 1) * sizeof(QChar),
                                    &d->stmt, &pzTail);
 #else
     int res = sqlite3_prepare16(d->access, query.constData(), (query.size() + 1) * sizeof(QChar),
@@ -409,12 +422,12 @@ bool SQLiteResult::prepare(const QString &query)
 #endif
 
     if (res != SQLITE_OK) {
-        setLastError(qMakeError(d->access, QCoreApplication::translate("SQLiteResult",
+        setLastError(qMakeError(d->drv_d_func()->access, QCoreApplication::translate("SQLiteResult",
                      "Unable to execute statement"), QSqlError::StatementError, res));
         d->finalize();
         return false;
     } else if (pzTail && !QString(reinterpret_cast<const QChar *>(pzTail)).trimmed().isEmpty()) {
-        setLastError(qMakeError(d->access, QCoreApplication::translate("SQLiteResult",
+        setLastError(qMakeError(d->drv_d_func()->access, QCoreApplication::translate("SQLiteResult",
             "Unable to execute multiple statements at a time"), QSqlError::StatementError, SQLITE_MISUSE));
         d->finalize();
         return false;
@@ -422,9 +435,61 @@ bool SQLiteResult::prepare(const QString &query)
     return true;
 }
 
+static QString secondsToOffset(int seconds)
+{
+    const QChar sign = ushort(seconds < 0 ? '-' : '+');
+    seconds = qAbs(seconds);
+    const int hours = seconds / 3600;
+    const int minutes = (seconds % 3600) / 60;
+
+    return QString(QStringLiteral("%1%2:%3")).arg(sign).arg(hours, 2, 10, QLatin1Char('0')).arg(minutes, 2, 10, QLatin1Char('0'));
+}
+
+static QString timespecToString(const QDateTime &dateTime)
+{
+    switch (dateTime.timeSpec()) {
+    case Qt::LocalTime:
+        return QString();
+    case Qt::UTC:
+        return QStringLiteral("Z");
+    case Qt::OffsetFromUTC:
+        return secondsToOffset(dateTime.offsetFromUtc());
+#if QT_CONFIG(timezone)
+    case Qt::TimeZone:
+        return secondsToOffset(dateTime.timeZone().offsetFromUtc(dateTime));
+#endif
+    default:
+        return QString();
+    }
+}
+
+bool SQLiteResult::execBatch(bool arrayBind)
+{
+    Q_UNUSED(arrayBind);
+    Q_D(QSqlResult);
+    QScopedValueRollback<QVector<QVariant>> valuesScope(d->values);
+    QVector<QVariant> values = d->values;
+    if (values.count() == 0)
+        return false;
+
+    for (int i = 0; i < values.at(0).toList().count(); ++i) {
+        d->values.clear();
+        QScopedValueRollback<QHash<QString, QVector<int>>> indexesScope(d->indexes);
+        QHash<QString, QVector<int>>::const_iterator it = d->indexes.constBegin();
+        while (it != d->indexes.constEnd()) {
+            bindValue(it.key(), values.at(it.value().first()).toList().at(i), QSql::In);
+            ++it;
+        }
+        if (!exec())
+            return false;
+    }
+    return true;
+}
+
 bool SQLiteResult::exec()
 {
-    const QVector<QVariant> values = boundValues();
+    Q_D(SQLiteResult);
+    QVector<QVariant> values = boundValues();
 
     d->skippedStatus = false;
     d->skipRow = false;
@@ -434,13 +499,48 @@ bool SQLiteResult::exec()
 
     int res = sqlite3_reset(d->stmt);
     if (res != SQLITE_OK) {
-        setLastError(qMakeError(d->access, QCoreApplication::translate("SQLiteResult",
+        setLastError(qMakeError(d->drv_d_func()->access, QCoreApplication::translate("SQLiteResult",
                      "Unable to reset statement"), QSqlError::StatementError, res));
         d->finalize();
         return false;
     }
     int paramCount = sqlite3_bind_parameter_count(d->stmt);
-    if (paramCount == values.count()) {
+    bool paramCountIsValid = paramCount == values.count();
+#if (SQLITE_VERSION_NUMBER >= 3003011)
+    // In the case of the reuse of a named placeholder
+    // We need to check explicitly that paramCount is greater than or equal to 1, as sqlite
+    // can end up in a case where for virtual tables it returns 0 even though it
+    // has parameters
+    if (paramCount >= 1 && paramCount < values.count()) {
+        const auto countIndexes = [](int counter, const QVector<int> &indexList) {
+                                      return counter + indexList.length();
+                                  };
+
+        const int bindParamCount = std::accumulate(d->indexes.cbegin(),
+                                                   d->indexes.cend(),
+                                                   0,
+                                                   countIndexes);
+
+        paramCountIsValid = bindParamCount == values.count();
+        // When using named placeholders, it will reuse the index for duplicated
+        // placeholders. So we need to ensure the QVector has only one instance of
+        // each value as SQLite will do the rest for us.
+        QVector<QVariant> prunedValues;
+        QVector<int> handledIndexes;
+        for (int i = 0, currentIndex = 0; i < values.size(); ++i) {
+            if (handledIndexes.contains(i))
+                continue;
+            const auto placeHolder = QString::fromUtf8(sqlite3_bind_parameter_name(d->stmt, currentIndex + 1));
+            const auto &indexes = d->indexes.value(placeHolder);
+            handledIndexes << indexes;
+            prunedValues << values.at(indexes.first());
+            ++currentIndex;
+        }
+        values = prunedValues;
+    }
+#endif
+
+    if (paramCountIsValid) {
         for (int i = 0; i < paramCount; ++i) {
             res = SQLITE_OK;
             const QVariant value = values.at(i);
@@ -467,7 +567,7 @@ bool SQLiteResult::exec()
                     break;
                 case QVariant::DateTime: {
                     const QDateTime dateTime = value.toDateTime();
-                    const QString str = dateTime.toString(QStringLiteral("yyyy-MM-ddThh:mm:ss.zzz"));
+                    const QString str = dateTime.toString(QLatin1String("yyyy-MM-ddThh:mm:ss.zzz") + timespecToString(dateTime));
                     res = sqlite3_bind_text16(d->stmt, i + 1, str.utf16(),
                                               str.size() * sizeof(ushort), SQLITE_TRANSIENT);
                     break;
@@ -494,7 +594,7 @@ bool SQLiteResult::exec()
                 }
             }
             if (res != SQLITE_OK) {
-                setLastError(qMakeError(d->access, QCoreApplication::translate("SQLiteResult",
+                setLastError(qMakeError(d->drv_d_func()->access, QCoreApplication::translate("SQLiteResult",
                              "Unable to bind parameters"), QSqlError::StatementError, res));
                 d->finalize();
                 return false;
@@ -516,8 +616,9 @@ bool SQLiteResult::exec()
     return true;
 }
 
-bool SQLiteResult::gotoNext(SqlCachedResult::ValueCache& row, int idx)
+bool SQLiteResult::gotoNext(QSqlCachedResult::ValueCache& row, int idx)
 {
+    Q_D(SQLiteResult);
     return d->fetchNext(row, idx, false);
 }
 
@@ -528,13 +629,15 @@ int SQLiteResult::size()
 
 int SQLiteResult::numRowsAffected()
 {
-    return sqlite3_changes(d->access);
+    Q_D(const SQLiteResult);
+    return sqlite3_changes(d->drv_d_func()->access);
 }
 
 QVariant SQLiteResult::lastInsertId() const
 {
+    Q_D(const SQLiteResult);
     if (isActive()) {
-        qint64 id = sqlite3_last_insert_rowid(d->access);
+        qint64 id = sqlite3_last_insert_rowid(d->drv_d_func()->access);
         if (id)
             return id;
     }
@@ -543,6 +646,7 @@ QVariant SQLiteResult::lastInsertId() const
 
 QSqlRecord SQLiteResult::record() const
 {
+    Q_D(const SQLiteResult);
     if (!isActive() || !isSelect())
         return QSqlRecord();
     return d->rInf;
@@ -551,6 +655,7 @@ QSqlRecord SQLiteResult::record() const
 #if (QT_VERSION >= 0x050000)
 void SQLiteResult::detachFromResultSet()
 {
+    Q_D(SQLiteResult);
     if (d->stmt)
         sqlite3_reset(d->stmt);
 }
@@ -558,21 +663,55 @@ void SQLiteResult::detachFromResultSet()
 
 QVariant SQLiteResult::handle() const
 {
+    Q_D(const SQLiteResult);
     return QVariant::fromValue(d->stmt);
 }
 
 /////////////////////////////////////////////////////////
 
-SQLiteCipherDriver::SQLiteCipherDriver(QObject * parent)
-    : QSqlDriver(parent)
+#if QT_CONFIG(regularexpression)
+static void _q_regexp(sqlite3_context* context, int argc, sqlite3_value** argv)
 {
-    d = new SQLiteCipherDriverPrivate;
+    if (Q_UNLIKELY(argc != 2)) {
+        sqlite3_result_int(context, 0);
+        return;
+    }
+
+    const QString pattern = QString::fromUtf8(
+        reinterpret_cast<const char*>(sqlite3_value_text(argv[0])));
+    const QString subject = QString::fromUtf8(
+        reinterpret_cast<const char*>(sqlite3_value_text(argv[1])));
+
+    auto cache = static_cast<QCache<QString, QRegularExpression>*>(sqlite3_user_data(context));
+    auto regexp = cache->object(pattern);
+    const bool wasCached = regexp;
+
+    if (!wasCached)
+        regexp = new QRegularExpression(pattern, QRegularExpression::DontCaptureOption | QRegularExpression::OptimizeOnFirstUsageOption);
+
+    const bool found = subject.contains(*regexp);
+
+    if (!wasCached)
+        cache->insert(pattern, regexp);
+
+    sqlite3_result_int(context, int(found));
+}
+
+static void _q_regexp_cleanup(void *cache)
+{
+    delete static_cast<QCache<QString, QRegularExpression>*>(cache);
+}
+#endif
+
+SQLiteCipherDriver::SQLiteCipherDriver(QObject * parent)
+    : QSqlDriver(*new SQLiteCipherDriverPrivate, parent)
+{
 }
 
 SQLiteCipherDriver::SQLiteCipherDriver(sqlite3 *connection, QObject *parent)
-    : QSqlDriver(parent)
+    : QSqlDriver(*new SQLiteCipherDriverPrivate, parent)
 {
-    d = new SQLiteCipherDriverPrivate;
+    Q_D(SQLiteCipherDriver);
     d->access = connection;
     setOpen(true);
     setOpenError(false);
@@ -581,7 +720,7 @@ SQLiteCipherDriver::SQLiteCipherDriver(sqlite3 *connection, QObject *parent)
 
 SQLiteCipherDriver::~SQLiteCipherDriver()
 {
-    delete d;
+    close();
 }
 
 bool SQLiteCipherDriver::hasFeature(DriverFeature f) const
@@ -596,14 +735,19 @@ bool SQLiteCipherDriver::hasFeature(DriverFeature f) const
     case SimpleLocking:
     case FinishQuery:
     case LowPrecisionNumbers:
+    case EventNotifications:
         return true;
     case QuerySize:
-    case NamedPlaceholders:
     case BatchOperations:
-    case EventNotifications:
     case MultipleResultSets:
     case CancelQuery:
         return false;
+    case NamedPlaceholders:
+#if (SQLITE_VERSION_NUMBER < 3003011)
+        return false;
+#else
+        return true;
+#endif
     }
     return false;
 }
@@ -614,9 +758,9 @@ bool SQLiteCipherDriver::hasFeature(DriverFeature f) const
 */
 bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString &password, const QString &, int, const QString &conOpts)
 {
-    if (isOpen()) {
+    Q_D(SQLiteCipherDriver);
+    if (isOpen())
         close();
-    }
 
     enum KEY_OP {
         OPEN_WITH_KEY = 0,
@@ -631,6 +775,11 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
     bool openReadOnlyOption = false;
     bool openUriOption = false;
     QString newPassword = QString::null;
+#if QT_CONFIG(regularexpression)
+    static const QLatin1String regexpConnectOption = QLatin1String("QSQLITE_ENABLE_REGEXP");
+    bool defineRegexp = false;
+    int regexpCacheSize = 25;
+#endif
 
     const QStringList opts = QString(conOpts).remove(QLatin1Char(' ')).split(QLatin1Char(';'));
     foreach (const QString &option, opts) {
@@ -655,18 +804,42 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
         } else if (option == QLatin1String("QSQLITE_REMOVE_KEY")) {
             keyOp = REMOVE_KEY;
         }
+#if QT_CONFIG(regularexpression)
+        else if (option.startsWith(regexpConnectOption)) {
+            QString regOption = option.mid(regexpConnectOption.size());
+            if (regOption.isEmpty()) {
+                defineRegexp = true;
+            } else if (regOption.startsWith(QLatin1Char('='))) {
+                bool ok = false;
+                const int cacheSize = regOption.mid(1).trimmed().toInt(&ok);
+                if (ok) {
+                    defineRegexp = true;
+                    if (cacheSize > 0)
+                        regexpCacheSize = cacheSize;
+                }
+            }
+        }
+#endif
     }
 
     int openMode = (openReadOnlyOption ? SQLITE_OPEN_READONLY : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE));
+    openMode |= (sharedCache ? SQLITE_OPEN_SHAREDCACHE : SQLITE_OPEN_PRIVATECACHE);
     if (openUriOption)
         openMode |= SQLITE_OPEN_URI;
 
-    sqlite3_enable_shared_cache(sharedCache);
+    openMode |= SQLITE_OPEN_NOMUTEX;
 
     if (sqlite3_open_v2(db.toUtf8().constData(), &d->access, openMode, nullptr) == SQLITE_OK) {
         sqlite3_busy_timeout(d->access, timeOut);
         setOpen(true);
         setOpenError(false);
+#if QT_CONFIG(regularexpression)
+        if (defineRegexp) {
+            auto cache = new QCache<QString, QRegularExpression>(regexpCacheSize);
+            sqlite3_create_function_v2(d->access, "regexp", 2, SQLITE_UTF8, cache, &_q_regexp, NULL,
+                                       NULL, &_q_regexp_cleanup);
+        }
+#endif
         if (!(password.isNull() || password.isEmpty())) {
             switch (keyOp) {
             case OPEN_WITH_KEY:
@@ -719,14 +892,23 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
 
 void SQLiteCipherDriver::close()
 {
+    Q_D(SQLiteCipherDriver);
     if (isOpen()) {
+#if (QT_VERSION >= 0x050700)
+        for (SQLiteResult *result : qAsConst(d->results)) {
+#else
         foreach (SQLiteResult *result, d->results) {
-            result->d->finalize();
+#endif
+            result->d_func()->finalize();
+        }
+
+        if (d->access && (d->notificationid.count() > 0)) {
+            d->notificationid.clear();
+            sqlite3_update_hook(d->access, NULL, NULL);
         }
 
         if (sqlite3_close(d->access) != SQLITE_OK)
-            setLastError(qMakeError(d->access, tr("Error closing database"),
-                                    QSqlError::ConnectionError));
+            setLastError(qMakeError(d->access, tr("Error closing database"), QSqlError::ConnectionError));
         d->access = 0;
         setOpen(false);
         setOpenError(false);
@@ -825,7 +1007,7 @@ static QSqlIndex qGetTableInfo(QSqlQuery &q, const QString &tableName, bool only
         schema = tableName.left(indexOfSeparator).append(QLatin1Char('.'));
         table = tableName.mid(indexOfSeparator + 1);
     }
-    q.exec(QLatin1String("PRAGMA ") + schema + QLatin1String("table_info (") + _q_escapeIdentifier(table) + QLatin1String(")"));
+    q.exec(QLatin1String("PRAGMA ") + schema + QLatin1String("table_info (") + _q_escapeIdentifier(table) + QLatin1Char(')'));
 
     QSqlIndex ind;
     while (q.next()) {
@@ -833,7 +1015,7 @@ static QSqlIndex qGetTableInfo(QSqlQuery &q, const QString &tableName, bool only
         if (onlyPIndex && !isPk)
             continue;
         QString typeName = q.value(2).toString().toLower();
-        QSqlField fld(q.value(1).toString(), qGetColumnType(typeName));
+        QSqlField fld(q.value(1).toString(), qGetColumnType(typeName), tableName);
         if (isPk && (typeName == QLatin1String("integer")))
             // INTEGER PRIMARY KEY fields are auto-generated in sqlite
             // INT PRIMARY KEY is not the same as INTEGER PRIMARY KEY!
@@ -875,6 +1057,7 @@ QSqlRecord SQLiteCipherDriver::record(const QString &tbl) const
 
 QVariant SQLiteCipherDriver::handle() const
 {
+    Q_D(const SQLiteCipherDriver);
     return QVariant::fromValue(d->access);
 }
 
@@ -882,6 +1065,74 @@ QString SQLiteCipherDriver::escapeIdentifier(const QString &identifier, Identifi
 {
     Q_UNUSED(type);
     return _q_escapeIdentifier(identifier);
+}
+
+static void handle_sqlite_callback(void *qobj, int aoperation, char const *adbname, char const *atablename,
+                                   sqlite3_int64 arowid)
+{
+    Q_UNUSED(aoperation);
+    Q_UNUSED(adbname);
+    SQLiteCipherDriver *driver = static_cast<SQLiteCipherDriver *>(qobj);
+    if (driver) {
+        QMetaObject::invokeMethod(driver, "handleNotification", Qt::QueuedConnection,
+                                  Q_ARG(QString, QString::fromUtf8(atablename)), Q_ARG(qint64, arowid));
+    }
+}
+
+bool SQLiteCipherDriver::subscribeToNotification(const QString &name)
+{
+    Q_D(SQLiteCipherDriver);
+    if (!isOpen()) {
+        qWarning("Database not open.");
+        return false;
+    }
+
+    if (d->notificationid.contains(name)) {
+        qWarning("Already subscribing to '%s'.", qPrintable(name));
+        return false;
+    }
+
+    //sqlite supports only one notification callback, so only the first is registered
+    d->notificationid << name;
+    if (d->notificationid.count() == 1)
+        sqlite3_update_hook(d->access, &handle_sqlite_callback, reinterpret_cast<void *> (this));
+
+    return true;
+}
+
+bool SQLiteCipherDriver::unsubscribeFromNotification(const QString &name)
+{
+    Q_D(SQLiteCipherDriver);
+    if (!isOpen()) {
+        qWarning("Database not open.");
+        return false;
+    }
+
+    if (!d->notificationid.contains(name)) {
+        qWarning("Not subscribed to '%s'.", qPrintable(name));
+        return false;
+    }
+
+    d->notificationid.removeAll(name);
+    if (d->notificationid.isEmpty())
+        sqlite3_update_hook(d->access, NULL, NULL);
+
+    return true;
+}
+
+QStringList SQLiteCipherDriver::subscribedToNotifications() const
+{
+    Q_D(const SQLiteCipherDriver);
+    return d->notificationid;
+}
+
+void SQLiteCipherDriver::handleNotification(const QString &tableName, qint64 rowid)
+{
+    Q_D(const SQLiteCipherDriver);
+    if (d->notificationid.contains(tableName)) {
+        emit notification(tableName);
+        emit notification(tableName, QSqlDriver::UnknownSource, QVariant(rowid));
+    }
 }
 
 QT_END_NAMESPACE

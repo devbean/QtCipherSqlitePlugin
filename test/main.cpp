@@ -1,5 +1,8 @@
-#include <QtSql>
-#include <QCoreApplication>
+#include <QtTest/QtTest>
+#include <QTemporaryDir>
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QSqlError>
 
 #ifdef Q_OS_IOS
 #  include <QtPlugin>
@@ -7,53 +10,93 @@
 Q_IMPORT_PLUGIN(SqliteCipherDriverPlugin)
 #endif
 
-#define CONNECTION_FAILED -1
-
-int main(int argc, char *argv[])
+class TestSqliteCipher: public QObject
 {
-    QCoreApplication app(argc, argv);
-    Q_UNUSED(app);
-
-    qDebug() << QSqlDatabase::drivers();
-    QString dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-    QString DB_FILE_PATH = dir + "/test_c.db";
-    qDebug() << "DB File Path is:" << DB_FILE_PATH;
-
-    QSqlDatabase dbconn = QSqlDatabase::addDatabase("QSQLITE");
-    dbconn.setDatabaseName(DB_FILE_PATH);
-    dbconn.setPassword("test");
-    if (!dbconn.open()) {
-        qDebug() << "Can not open connection: " << dbconn.lastError().driverText();
-        exit(CONNECTION_FAILED);
+    Q_OBJECT
+private slots:
+    void initTestCase() // will run once before the first test
+    {
+        // Check that the driver exists
+        QVERIFY2(QSqlDatabase::isDriverAvailable("SQLITECIPHER"), "SQLITECIPHER driver not found.");
+        // Set the database file
+        QString dbname = QDir(tmpDir.path()).absoluteFilePath("test.db");
+        QSqlDatabase db = QSqlDatabase::addDatabase("SQLITECIPHER", "db");
+        db.setDatabaseName(dbname);
     }
+    void cleanup()
+    {
+        QSqlDatabase db = QSqlDatabase::database("db", false);
+        db.close();
+    }
+    void checkVersion();
+    void checkCompileOptions();
+    void createDbWithPassphrase();
+    void refuseToReadWithoutPassphrase();
+    void allowToReadWithPassphrase();
+    void cleanupTestCase()
+    {
+        QSqlDatabase::removeDatabase("db");
+    }
+private:
+    QTemporaryDir tmpDir;
+};
 
-    QSqlQuery query;
-    query.exec("create table mapping (id int, name varchar)");
-    query.exec("insert into mapping values (1, 'AAA')");
-    query.exec("insert into mapping values (2, 'BBB')");
-    query.exec("insert into mapping values (3, 'CCC')");
-    query.exec("insert into mapping values (4, 'DDD')");
-    query.exec("insert into mapping values (5, 'EEE')");
-    query.exec("insert into mapping values (6, 'FFF')");
-    query.exec("insert into mapping values (7, 'GGG')");
-    query.exec("select id, name from mapping");
-    while (query.next()) {
-        qDebug() << query.value(0).toInt() << ": " << query.value(1).toString();
-    }
-    qDebug() << "----------" << endl;
-    query.exec("update mapping set name='ZZZ' where id=1");
-    query.exec("select id, name from mapping");
-    while (query.next()) {
-        qDebug() << query.value(0).toInt() << ": " << query.value(1).toString();
-    }
-    qDebug() << "----------" << endl;
-    query.exec("delete from mapping where id=4");
-    query.exec("select id, name from mapping");
-    while (query.next()) {
-        qDebug() << query.value(0).toInt() << ": " << query.value(1).toString();
-    }
-    query.exec("drop table mapping");
-    dbconn.close();
-
-    return 0;
+void TestSqliteCipher::checkVersion()
+{
+    QSqlQuery q(QSqlDatabase::database("db"));
+    QVERIFY2(q.exec("PRAGMA cipher_version;"), q.lastError().text().toLatin1().constData());
+    QVERIFY(q.next());
+    QCOMPARE(q.value(0).toString(), QString("3.4.2"));
 }
+
+void TestSqliteCipher::checkCompileOptions()
+{
+    QSqlQuery q(QSqlDatabase::database("db"));
+    QVERIFY2(q.exec("PRAGMA compile_options"), q.lastError().text().toLatin1().constData());
+    bool hasCodec = false;
+    while(q.next())
+    {
+        if(q.value(0).toString() == QString("HAS_CODEC"))
+        {
+            hasCodec = true;
+            break;
+        }
+    }
+    QVERIFY2(hasCodec, "'HAS_CODEC' should be in sqlcipher's compile_options.");
+}
+
+void TestSqliteCipher::createDbWithPassphrase()
+{
+    QSqlQuery q(QSqlDatabase::database("db"));
+    QStringList queries;
+    queries << "PRAGMA key='foobar'"
+            << "create table foo(bar integer)"
+            << "insert into foo values (42)";
+    for(const QString& qs : queries)
+    {
+        QVERIFY2(q.exec(qs), q.lastError().text().toLatin1().constData());
+    }
+}
+
+void TestSqliteCipher::refuseToReadWithoutPassphrase()
+{
+    QSqlQuery q(QSqlDatabase::database("db"));
+    QVERIFY(!q.exec("select bar from foo"));
+}
+
+void TestSqliteCipher::allowToReadWithPassphrase()
+{
+    QSqlQuery q(QSqlDatabase::database("db"));
+    QStringList queries;
+    queries << "PRAGMA key='foobar'"
+            << "select bar from foo";
+    for(const QString& qs : queries)
+    {
+        QVERIFY2(q.exec(qs), q.lastError().text().toLatin1().constData());
+    }
+    QVERIFY(q.next());
+    QVERIFY(q.value(0).toInt() == 42);
+}
+
+QTEST_GUILESS_MAIN(TestSqliteCipher)
+#include "main.moc"
