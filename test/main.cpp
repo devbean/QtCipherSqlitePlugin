@@ -28,7 +28,6 @@ private slots:
         QSqlDatabase db = QSqlDatabase::database("db", false);
         db.close();
     }
-    void checkVersion();
     void checkCompileOptions();
     void createDbWithPassphrase();
     void refuseToReadWithoutPassphrase();
@@ -40,14 +39,6 @@ private slots:
 private:
     QTemporaryDir tmpDir;
 };
-
-void TestSqliteCipher::checkVersion()
-{
-    QSqlQuery q(QSqlDatabase::database("db"));
-    QVERIFY2(q.exec("PRAGMA cipher_version;"), q.lastError().text().toLatin1().constData());
-    QVERIFY(q.next());
-    QCOMPARE(q.value(0).toString(), QString("3.4.2"));
-}
 
 void TestSqliteCipher::checkCompileOptions()
 {

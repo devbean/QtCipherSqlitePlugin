@@ -39,6 +39,7 @@
 
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QDebug>
 #include <QScopedValueRollback>
 #include <QSqlError>
 #include <QSqlField>
@@ -64,7 +65,7 @@
 #endif
 
 extern "C" {
-#include "sqlite3.h"
+#include "sqlite3secure.h"
 }
 
 Q_DECLARE_METATYPE(sqlite3*)
@@ -76,6 +77,12 @@ Q_DECLARE_OPAQUE_POINTER(sqlite3_stmt*)
 
 #define CHECK_SQLITE_KEY \
     do { \
+        sqlite3_key(d->access, password.toUtf8().constData(), password.size()); \
+        int result = sqlite3_exec(d->access, QStringLiteral("SELECT count(*) FROM sqlite_master LIMIT 1").toUtf8().constData(), nullptr, nullptr, nullptr); \
+        if (result != SQLITE_OK) { \
+            if (d->access) { sqlite3_close(d->access); d->access = 0; } \
+            setLastError(qMakeError(d->access, tr("Invalid password. Maybe cipher not match?"), QSqlError::ConnectionError)); setOpenError(true); return false; \
+        } \
     } while (0)
 
 QT_BEGIN_NAMESPACE
@@ -752,6 +759,44 @@ bool SQLiteCipherDriver::hasFeature(DriverFeature f) const
     return false;
 }
 
+enum QtSqliteCipher {
+    UNKNOWN_CIPHER = 0,
+    AES_128_CBC,
+    AES_256_CBC,
+    CHACHA20,
+    SQLCIPHER
+};
+
+static int _cipherNameToValue(const QString &name) {
+    const QString lowerName = name.toLower();
+    if (lowerName == QStringLiteral("aes128cbc")) {
+        return AES_128_CBC;
+    } else if (lowerName == QStringLiteral("aes256cbc")) {
+        return AES_256_CBC;
+    } else if (lowerName == QStringLiteral("chacha20")) {
+        return CHACHA20;
+    } else if (lowerName == QStringLiteral("sqlcipher")) {
+        return SQLCIPHER;
+    } else {
+        return AES_256_CBC;
+    }
+}
+
+static QString _cipherValueToName(const QtSqliteCipher &cipher) {
+    switch (cipher) {
+    case AES_128_CBC:
+        return QStringLiteral("AES_128_CBC");
+    case AES_256_CBC:
+        return QStringLiteral("AES_256_CBC");
+    case CHACHA20:
+        return QStringLiteral("CHACHA20");
+    case SQLCIPHER:
+        return QStringLiteral("SQLCIPHER");
+    default:
+        return QStringLiteral("UNKNOWN");
+    }
+}
+
 /*
    SQLite dbs have no user name, hosts or ports.
    just file names and password we need.
@@ -775,6 +820,8 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
     bool openReadOnlyOption = false;
     bool openUriOption = false;
     QString newPassword = QString::null;
+    int cipher = -1;
+    bool showCipherName = false;
 #if QT_CONFIG(regularexpression)
     static const QLatin1String regexpConnectOption = QLatin1String("QSQLITE_ENABLE_REGEXP");
     bool defineRegexp = false;
@@ -793,6 +840,10 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             newPassword = option.mid(19);
             keyOp = UPDATE_KEY;
         }
+        if (option.startsWith(QLatin1String("QSQLITE_USE_CIPHER="))) {
+            QString cipherName = option.mid(19);
+            cipher = _cipherNameToValue(cipherName);
+        }
         if (option == QLatin1String("QSQLITE_OPEN_READONLY")) {
             openReadOnlyOption = true;
         } else if (option == QLatin1String("QSQLITE_OPEN_URI")) {
@@ -803,6 +854,8 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             keyOp = CREATE_KEY;
         } else if (option == QLatin1String("QSQLITE_REMOVE_KEY")) {
             keyOp = REMOVE_KEY;
+        } else if (option == QLatin1String("QSQLITE_SHOW_CIPHER")) {
+            showCipherName = true;
         }
 #if QT_CONFIG(regularexpression)
         else if (option.startsWith(regexpConnectOption)) {
@@ -831,6 +884,15 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
 
     if (sqlite3_open_v2(db.toUtf8().constData(), &d->access, openMode, nullptr) == SQLITE_OK) {
         sqlite3_busy_timeout(d->access, timeOut);
+
+        if (cipher > 0) {
+            wxsqlite3_config(d->access, "cipher", cipher);
+        }
+        if (showCipherName) {
+            int cipherType = wxsqlite3_config(d->access, "cipher", -1);
+            qDebug() << "Current cipher is: " << _cipherValueToName(static_cast<QtSqliteCipher>(cipherType));
+        }
+
         setOpen(true);
         setOpenError(false);
 #if QT_CONFIG(regularexpression)
@@ -850,6 +912,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             case CREATE_KEY:
             {
                 if (SQLITE_OK != sqlite3_rekey(d->access, password.toUtf8().constData(), password.size())) {
+                    setLastError(qMakeError(d->access, tr("Cannot create password. Maybe it is encrypted?"), QSqlError::ConnectionError));
                     return false;
                 }
                 break;
@@ -883,8 +946,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             d->access = 0;
         }
 
-        setLastError(qMakeError(d->access, tr("Error opening database"),
-                     QSqlError::ConnectionError));
+        setLastError(qMakeError(d->access, tr("Error opening database"), QSqlError::ConnectionError));
         setOpenError(true);
         return false;
     }
