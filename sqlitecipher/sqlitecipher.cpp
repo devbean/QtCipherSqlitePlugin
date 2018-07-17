@@ -821,7 +821,22 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
     bool openUriOption = false;
     QString newPassword = QString::null;
     int cipher = -1;
-    bool showCipherName = false;
+    // AES128CBC
+    bool aes128cbcLegacy = false;
+    // AES256CBC
+    bool aes256cbcLegacy = false;
+    int aes256cbcKdfIter = 4001;
+    // CHACHA20
+    bool chacha20Legacy = false;
+    int chacha20KdfIter = 64007;
+    // SQLCIPHER
+    bool sqlcipherLegacy = false;
+    int sqlcipherKdfIter = 64000;
+    int sqlcipherFastKdfIter = 2;
+    bool sqlcipherHmacUse = true;
+    int sqlcipherHmacPgno = 1;
+    int sqlcipherHmacSaltMask = 0x3a;
+
 #if QT_CONFIG(regularexpression)
     static const QLatin1String regexpConnectOption = QLatin1String("QSQLITE_ENABLE_REGEXP");
     bool defineRegexp = false;
@@ -833,8 +848,9 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
         if (option.startsWith(QLatin1String("QSQLITE_BUSY_TIMEOUT="))) {
             bool ok;
             const int nt = option.midRef(21).toInt(&ok);
-            if (ok)
+            if (ok) {
                 timeOut = nt;
+            }
         }
         if (option.startsWith(QLatin1String("QSQLITE_UPDATE_KEY="))) {
             newPassword = option.mid(19);
@@ -844,6 +860,108 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             QString cipherName = option.mid(19);
             cipher = _cipherNameToValue(cipherName);
         }
+        if (option.startsWith(QLatin1String("AES128CBC_LEGACY="))) {
+            bool ok;
+            const int nl = option.mid(17).toInt(&ok);
+            if (ok) {
+                aes128cbcLegacy = nl;
+            }
+        }
+        if (option.startsWith(QLatin1String("AES256CBC_LEGACY="))) {
+            bool ok;
+            const int nl = option.mid(17).toInt(&ok);
+            if (ok) {
+                aes256cbcLegacy = nl;
+            }
+        }
+        if (option.startsWith(QLatin1String("AES256CBC_KDF_ITER="))) {
+            bool ok;
+            const int nk = option.mid(19).toInt(&ok);
+            if (ok) {
+                aes256cbcKdfIter = nk;
+                if (aes256cbcKdfIter < 1) {
+                    aes256cbcKdfIter = 1;
+                }
+            }
+        }
+        if (option.startsWith(QLatin1String("CHACHA20_LEGACY="))) {
+            bool ok;
+            const int nl = option.mid(16).toInt(&ok);
+            if (ok) {
+                chacha20Legacy = nl;
+            }
+        }
+        if (option.startsWith(QLatin1String("CHACHA20_KDF_ITER="))) {
+            bool ok;
+            const int nk = option.mid(18).toInt(&ok);
+            if (ok) {
+                chacha20KdfIter = nk;
+                if (chacha20KdfIter < 1) {
+                    chacha20KdfIter = 1;
+                }
+            }
+        }
+        if (option.startsWith(QLatin1String("SQLCIPHER_LEGACY="))) {
+            bool ok;
+            const int nl = option.mid(17).toInt(&ok);
+            if (ok) {
+                sqlcipherLegacy = nl;
+            }
+        }
+        if (option.startsWith(QLatin1String("SQLCIPHER_KDF_ITER="))) {
+            bool ok;
+            const int nk = option.mid(19).toInt(&ok);
+            if (ok) {
+                sqlcipherKdfIter = nk;
+                if (sqlcipherKdfIter < 1) {
+                    sqlcipherKdfIter = 1;
+                }
+            }
+        }
+        if (option.startsWith(QLatin1String("SQLCIPHER_FAST_KDF_ITER="))) {
+            bool ok;
+            const int nf = option.mid(24).toInt(&ok);
+            if (ok) {
+                sqlcipherFastKdfIter = nf;
+                if (sqlcipherFastKdfIter < 1) {
+                    sqlcipherFastKdfIter = 1;
+                }
+            }
+        }
+        if (option.startsWith(QLatin1String("SQLCIPHER_HMAC_USE="))) {
+            bool ok;
+            const int nh = option.mid(19).toInt(&ok);
+            if (ok) {
+                sqlcipherHmacUse = nh;
+            }
+        }
+        if (option.startsWith(QLatin1String("SQLCIPHER_HMAC_PGNO="))) {
+            bool ok;
+            const int np = option.mid(20).toInt(&ok);
+            if (ok) {
+                sqlcipherHmacPgno = np;
+                if (sqlcipherHmacPgno < 0) {
+                    sqlcipherHmacPgno = 0;
+                }
+                if (sqlcipherHmacPgno > 2) {
+                    sqlcipherHmacPgno = 2;
+                }
+            }
+        }
+        if (option.startsWith(QLatin1String("SQLCIPHER_HMAC_SALT_MASK="))) {
+            bool ok;
+            const int ns = option.mid(25).toInt(&ok);
+            if (ok) {
+                sqlcipherHmacSaltMask = ns;
+                if (sqlcipherHmacSaltMask < 0) {
+                    sqlcipherHmacSaltMask = 0;
+                }
+                if (sqlcipherHmacSaltMask > 255) {
+                    sqlcipherHmacSaltMask = 255;
+                }
+            }
+        }
+
         if (option == QLatin1String("QSQLITE_OPEN_READONLY")) {
             openReadOnlyOption = true;
         } else if (option == QLatin1String("QSQLITE_OPEN_URI")) {
@@ -854,8 +972,6 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             keyOp = CREATE_KEY;
         } else if (option == QLatin1String("QSQLITE_REMOVE_KEY")) {
             keyOp = REMOVE_KEY;
-        } else if (option == QLatin1String("QSQLITE_SHOW_CIPHER")) {
-            showCipherName = true;
         }
 #if QT_CONFIG(regularexpression)
         else if (option.startsWith(regexpConnectOption)) {
@@ -885,14 +1001,6 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
     if (sqlite3_open_v2(db.toUtf8().constData(), &d->access, openMode, nullptr) == SQLITE_OK) {
         sqlite3_busy_timeout(d->access, timeOut);
 
-        if (cipher > 0) {
-            wxsqlite3_config(d->access, "cipher", cipher);
-        }
-        if (showCipherName) {
-            int cipherType = wxsqlite3_config(d->access, "cipher", -1);
-            qDebug() << "Current cipher is: " << _cipherValueToName(static_cast<QtSqliteCipher>(cipherType));
-        }
-
         setOpen(true);
         setOpenError(false);
 #if QT_CONFIG(regularexpression)
@@ -902,6 +1010,42 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
                                        NULL, &_q_regexp_cleanup);
         }
 #endif
+        if (cipher > 0) {
+            wxsqlite3_config(d->access, "cipher", cipher);
+            switch (cipher) {
+            case AES_128_CBC:
+            {
+                wxsqlite3_config_cipher(d->access, "aes128cbc", "legacy", aes128cbcLegacy ? 1 : 0);
+                break;
+            }
+            case AES_256_CBC:
+            {
+                wxsqlite3_config_cipher(d->access, "aes256cbc", "legacy", aes256cbcLegacy ? 1 : 0);
+                wxsqlite3_config_cipher(d->access, "aes256cbc", "kdf_iter", aes256cbcKdfIter);
+                break;
+            }
+            case CHACHA20:
+            {
+                wxsqlite3_config_cipher(d->access, "chacha20", "legacy", chacha20Legacy ? 1 : 0);
+                wxsqlite3_config_cipher(d->access, "chacha20", "kdf_iter", chacha20KdfIter);
+                break;
+            }
+            case SQLCIPHER:
+            {
+                wxsqlite3_config_cipher(d->access, "sqlcipher", "legacy", sqlcipherLegacy ? 1 : 0);
+                wxsqlite3_config_cipher(d->access, "sqlcipher", "kdf_iter", sqlcipherKdfIter);
+                wxsqlite3_config_cipher(d->access, "sqlcipher", "fast_kdf_iter", sqlcipherFastKdfIter);
+                wxsqlite3_config_cipher(d->access, "sqlcipher", "hmac_use", sqlcipherHmacUse ? 1 : 0);
+                wxsqlite3_config_cipher(d->access, "sqlcipher", "hmac_pgno", sqlcipherHmacPgno);
+                wxsqlite3_config_cipher(d->access, "sqlcipher", "hmac_salt_mask", sqlcipherHmacSaltMask);
+                break;
+            }
+            default:
+                // Do nothing
+                break;
+            }
+        }
+
         if (!(password.isNull() || password.isEmpty())) {
             switch (keyOp) {
             case OPEN_WITH_KEY:
