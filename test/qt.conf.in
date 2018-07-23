@@ -1,0 +1,2 @@
+[Paths]
+Plugins = $$top_builddir/sqlitecipher/plugins
