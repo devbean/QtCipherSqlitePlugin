@@ -23,18 +23,13 @@ int main(int argc, char *argv[])
     QSqlDatabase dbconn = QSqlDatabase::addDatabase("SQLITECIPHER");
     dbconn.setDatabaseName(DB_FILE_PATH);
     dbconn.setPassword("test");
-//    dbconn.setConnectOptions("QSQLITE_USE_CIPHER=sqlcipher; QSQLITE_CREATE_KEY");
-    dbconn.setConnectOptions("QSQLITE_USE_CIPHER=sqlcipher; QSQLITE_SHOW_CIPHER");
+    dbconn.setConnectOptions("QSQLITE_USE_CIPHER=sqlcipher; QSQLITE_ENABLE_REGEXP");
     if (!dbconn.open()) {
         qDebug() << "Can not open connection: " << dbconn.lastError().driverText();
         exit(CONNECTION_FAILED);
     }
 
     QSqlQuery query;
-    query.exec("SELECT wxsqlite3_config('cipher')");
-    while (query.next()) {
-        qDebug() << "Cipher: " << query.value(0).toString();
-    }
     query.exec("create table mapping (id int, name varchar)");
     query.exec("insert into mapping values (1, 'AAA')");
     query.exec("insert into mapping values (2, 'BBB')");
@@ -43,6 +38,11 @@ int main(int argc, char *argv[])
     query.exec("insert into mapping values (5, 'EEE')");
     query.exec("insert into mapping values (6, 'FFF')");
     query.exec("insert into mapping values (7, 'GGG')");
+    query.exec("select * from mapping where name regexp '(a|A)$'");
+    while (query.next()) {
+        qDebug() << "Regexp result: " << query.value(0).toInt() << ": " << query.value(1).toString();
+    }
+    qDebug() << "----------" << endl;
     query.exec("select id, name from mapping");
     while (query.next()) {
         qDebug() << query.value(0).toInt() << ": " << query.value(1).toString();

@@ -778,7 +778,7 @@ static int _cipherNameToValue(const QString &name) {
     } else if (lowerName == QStringLiteral("sqlcipher")) {
         return SQLCIPHER;
     } else {
-        return AES_256_CBC;
+        return UNKNOWN_CIPHER;
     }
 }
 
