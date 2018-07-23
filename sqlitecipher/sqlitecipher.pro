@@ -1,8 +1,4 @@
 TARGET = sqlitecipher
-CONFIG(debug, debug|release) {
-    mac: TARGET = $$join(TARGET,,,_debug)
-    else: TARGET = $$join(TARGET,,,d)
-}
 
 android {
     TEMPLATE = app
@@ -10,7 +6,7 @@ android {
     TEMPLATE = lib
 }
 
-QT      *= core sql
+QT_FOR_CONFIG += sqldrivers-private
 
 CONFIG  += c++11 plugin
 
@@ -21,12 +17,10 @@ INSTALLS += target
 
 HEADERS  += \
     $$PWD/sqlitecipher_p.h \
-    $$PWD/sqlcachedresult_p.h \
     $$PWD/sqlitecipher_global.h
 SOURCES  += \
     $$PWD/smain.cpp \
-    $$PWD/sqlitecipher.cpp \
-    $$PWD/sqlcachedresult.cpp
+    $$PWD/sqlitecipher.cpp
 OTHER_FILES += SqliteCipherDriverPlugin.json
 
 !system-sqlite:!contains( LIBS, .*sqlite.* ) {
@@ -41,6 +35,11 @@ OTHER_FILES += SqliteCipherDriverPlugin.json
     QMAKE_CXXFLAGS *= $$QT_CFLAGS_SQLITE
 }
 
+QT = core core-private sql-private
+
 PLUGIN_CLASS_NAME = SqliteCipherDriverPlugin
 
 PLUGIN_TYPE = sqldrivers
+load(qt_plugin)
+
+DEFINES += QT_NO_CAST_TO_ASCII QT_NO_CAST_FROM_ASCII

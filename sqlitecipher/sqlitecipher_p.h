@@ -63,8 +63,9 @@ class SQLiteCipherDriverPrivate;
 
 class Q_EXPORT_SQLDRIVER_SQLITE SQLiteCipherDriver : public QSqlDriver
 {
+    Q_DECLARE_PRIVATE(SQLiteCipherDriver)
     Q_OBJECT
-    friend class SQLiteResult;
+    friend class SQLiteResultPrivate;
 public:
     explicit SQLiteCipherDriver(QObject *parent = 0);
     explicit SQLiteCipherDriver(sqlite3 *connection, QObject *parent = 0);
@@ -88,8 +89,11 @@ public:
     QVariant handle() const DECL_OVERRIDE;
     QString escapeIdentifier(const QString &identifier, IdentifierType) const DECL_OVERRIDE;
 
-private:
-    SQLiteCipherDriverPrivate *d;
+    bool subscribeToNotification(const QString &name) DECL_OVERRIDE;
+    bool unsubscribeFromNotification(const QString &name) DECL_OVERRIDE;
+    QStringList subscribedToNotifications() const DECL_OVERRIDE;
+private Q_SLOTS:
+    void handleNotification(const QString &tableName, qint64 rowid);
 };
 
 QT_END_NAMESPACE
