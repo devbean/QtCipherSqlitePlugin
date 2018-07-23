@@ -1,3 +1,8 @@
+## 1.0 (2018-07-23)
+* Update wxSQLite3 to 4.0.4
+* Add Qt private configuration in order to use Qt private headers.
+* Support multiple ciphers, including AES128CBC, AES256CBC, CHACHA20 and SQLCIPHER.
+
 ## 0.7 (2017-04-08)
 * Update sqlitecipher plugin debug name pattern on Mac OS.
 * Port test code to iOS.
