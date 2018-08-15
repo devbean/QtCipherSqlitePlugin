@@ -37,29 +37,63 @@
 **
 ****************************************************************************/
 
-#ifndef SQLITECHIPHER_GLOBAL_H
-#define SQLITECHIPHER_GLOBAL_H
+#ifndef SQLCACHEDRESULT_H
+#define SQLCACHEDRESULT_H
 
-#include <QtGlobal>
+#include <QSqlResult>
+
+#include "sqlitecipher_global.h"
 
 #if (QT_VERSION < 0x050000)
-#define DECL_OVERRIDE
-#else
-#define DECL_OVERRIDE Q_DECL_OVERRIDE
+QT_BEGIN_HEADER
 #endif
 
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
-  #if QT_CONFIG(regularexpression)
-    #define REGULAR_EXPRESSION_ENABLED
-  #endif
-  #if QT_CONFIG(timezone)
-    #define TIMEZONE_ENABLED
-  #endif
-#elif (QT_VERSION >= QT_VERSION_CHECK(5, 10, 0))
-  #ifndef QT_NO_REGULAREXPRESSION
-    #define REGULAR_EXPRESSION_ENABLED
-  #endif
-  #define TIMEZONE_ENABLED
+QT_BEGIN_NAMESPACE
+
+class QVariant;
+template <typename T> class QVector;
+
+class SqlCachedResultPrivate;
+
+class SqlCachedResult : public QSqlResult
+{
+public:
+    virtual ~SqlCachedResult();
+
+    typedef QVector<QVariant> ValueCache;
+
+protected:
+    SqlCachedResult(const QSqlDriver * db);
+
+    void init(int colCount);
+    void cleanup();
+    void clearValues();
+
+    virtual bool gotoNext(ValueCache &values, int index) = 0;
+
+    QVariant data(int i) DECL_OVERRIDE;
+    bool isNull(int i) DECL_OVERRIDE;
+    bool fetch(int i) DECL_OVERRIDE;
+    bool fetchNext() DECL_OVERRIDE;
+    bool fetchPrevious() DECL_OVERRIDE;
+    bool fetchFirst() DECL_OVERRIDE;
+    bool fetchLast() DECL_OVERRIDE;
+
+    int colCount() const;
+    ValueCache &cache();
+
+    void virtual_hook(int id, void *data) DECL_OVERRIDE;
+    void detachFromResultSet() DECL_OVERRIDE;
+    void setNumericalPrecisionPolicy(QSql::NumericalPrecisionPolicy policy) DECL_OVERRIDE;
+private:
+    bool cacheNext();
+    SqlCachedResultPrivate *d;
+};
+
+QT_END_NAMESPACE
+
+#if (QT_VERSION < 0x050000)
+QT_END_HEADER
 #endif
 
-#endif // SQLITECHIPHER_GLOBAL_H
+#endif // SQLCACHEDRESULT_H

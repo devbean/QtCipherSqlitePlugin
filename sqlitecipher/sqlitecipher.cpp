@@ -40,23 +40,24 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
-#include <QScopedValueRollback>
 #include <QSqlError>
 #include <QSqlField>
 #include <QSqlIndex>
 #include <QSqlQuery>
 #include <QtSql/private/qsqlcachedresult_p.h>
 #include <QtSql/private/qsqldriver_p.h>
-#if QT_CONFIG(regularexpression)
-#include <qcache.h>
-#include <qregularexpression.h>
-#endif
-#if QT_CONFIG(timezone)
-#include <QTimeZone>
-#endif
-#include <QVariant>
 
 #include "sqlitecipher_p.h"
+#ifdef REGULAR_EXPRESSION_ENABLED
+  #include <qcache.h>
+  #include <qregularexpression.h>
+#endif
+#ifdef TIMEZONE_ENABLED
+  #include <QTimeZone>
+#endif
+
+#include <QScopedValueRollback>
+#include <QVariant>
 
 #if defined Q_OS_WIN
 # include <qt_windows.h>
@@ -474,15 +475,15 @@ bool SQLiteResult::execBatch(bool arrayBind)
 {
     Q_UNUSED(arrayBind);
     Q_D(QSqlResult);
-    QScopedValueRollback<QVector<QVariant>> valuesScope(d->values);
+    QScopedValueRollback<decltype(d->values)> valuesScope(d->values);
     QVector<QVariant> values = d->values;
     if (values.count() == 0)
         return false;
 
     for (int i = 0; i < values.at(0).toList().count(); ++i) {
         d->values.clear();
-        QScopedValueRollback<QHash<QString, QVector<int>>> indexesScope(d->indexes);
-        QHash<QString, QVector<int>>::const_iterator it = d->indexes.constBegin();
+        QScopedValueRollback<decltype(d->indexes)> indexesScope(d->indexes);
+        decltype(d->indexes)::const_iterator it = d->indexes.constBegin();
         while (it != d->indexes.constEnd()) {
             bindValue(it.key(), values.at(it.value().first()).toList().at(i), QSql::In);
             ++it;
@@ -519,7 +520,7 @@ bool SQLiteResult::exec()
     // can end up in a case where for virtual tables it returns 0 even though it
     // has parameters
     if (paramCount >= 1 && paramCount < values.count()) {
-        const auto countIndexes = [](int counter, const QVector<int> &indexList) {
+        const auto countIndexes = [](int counter, const auto indexList) {
                                       return counter + indexList.length();
                                   };
 
@@ -539,7 +540,11 @@ bool SQLiteResult::exec()
                 continue;
             const auto placeHolder = QString::fromUtf8(sqlite3_bind_parameter_name(d->stmt, currentIndex + 1));
             const auto &indexes = d->indexes.value(placeHolder);
+#if QT_VERSION <= QT_VERSION_CHECK(5, 11, 0)
+            handledIndexes << QVector<int>::fromList(indexes);
+#else
             handledIndexes << indexes;
+#endif
             prunedValues << values.at(indexes.first());
             ++currentIndex;
         }
