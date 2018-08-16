@@ -55,7 +55,7 @@
   #if QT_CONFIG(timezone)
     #define TIMEZONE_ENABLED
   #endif
-#elif (QT_VERSION >= QT_VERSION_CHECK(5, 10, 0))
+#else
   #ifndef QT_NO_REGULAREXPRESSION
     #define REGULAR_EXPRESSION_ENABLED
   #endif
