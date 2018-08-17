@@ -39,8 +39,10 @@ int main(int argc, char *argv[])
     query.exec("insert into mapping values (6, 'FFF')");
     query.exec("insert into mapping values (7, 'GGG')");
     query.exec("select * from mapping where name regexp '(a|A)$'");
-    while (query.next()) {
+    if (query.next()) {
         qDebug() << "Regexp result: " << query.value(0).toInt() << ": " << query.value(1).toString();
+    } else {
+        qDebug() << "This plugin does not support regexp.";
     }
     qDebug() << "----------" << endl;
     query.exec("select id, name from mapping");
