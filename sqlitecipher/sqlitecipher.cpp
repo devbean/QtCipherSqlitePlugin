@@ -832,12 +832,15 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
     int cipher = -1;
     // AES128CBC
     bool aes128cbcLegacy = false;
+    int aes128cbcLegacyPageSize = 0;
     // AES256CBC
     bool aes256cbcLegacy = false;
     int aes256cbcKdfIter = 4001;
+    int aes256cbcLegacyPageSize = 0;
     // CHACHA20
     bool chacha20Legacy = false;
     int chacha20KdfIter = 64007;
+    int chacha20LegacyPageSize = 4096;
     // SQLCIPHER
     bool sqlcipherLegacy = false;
     int sqlcipherKdfIter = 64000;
@@ -845,6 +848,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
     bool sqlcipherHmacUse = true;
     int sqlcipherHmacPgno = 1;
     int sqlcipherHmacSaltMask = 0x3a;
+    int sqlcipherLegacyPageSize = 1024;
 
 #ifdef REGULAR_EXPRESSION_ENABLED
     static const QLatin1String regexpConnectOption = QLatin1String("QSQLITE_ENABLE_REGEXP");
@@ -876,11 +880,35 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
                 aes128cbcLegacy = nl;
             }
         }
+        if (option.startsWith(QLatin1String("AES128CBC_LEGACY_PAGE_SIZE="))) {
+            bool ok;
+            const int np = option.mid(27).toInt(&ok);
+            if (ok) {
+                aes128cbcLegacyPageSize = np;
+                if (aes128cbcLegacyPageSize < 0) {
+                    aes128cbcLegacyPageSize = 0;
+                } else if (aes128cbcLegacyPageSize > 65536) {
+                    aes128cbcLegacyPageSize = 65536;
+                }
+            }
+        }
         if (option.startsWith(QLatin1String("AES256CBC_LEGACY="))) {
             bool ok;
             const int nl = option.mid(17).toInt(&ok);
             if (ok) {
                 aes256cbcLegacy = nl;
+            }
+        }
+        if (option.startsWith(QLatin1String("AES256CBC_LEGACY_PAGE_SIZE="))) {
+            bool ok;
+            const int np = option.mid(27).toInt(&ok);
+            if (ok) {
+                aes256cbcLegacyPageSize = np;
+                if (aes256cbcLegacyPageSize < 0) {
+                    aes256cbcLegacyPageSize = 0;
+                } else if (aes256cbcLegacyPageSize > 65536) {
+                    aes256cbcLegacyPageSize = 65536;
+                }
             }
         }
         if (option.startsWith(QLatin1String("AES256CBC_KDF_ITER="))) {
@@ -900,6 +928,18 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
                 chacha20Legacy = nl;
             }
         }
+        if (option.startsWith(QLatin1String("CHACHA20_LEGACY_PAGE_SIZE="))) {
+            bool ok;
+            const int np = option.mid(26).toInt(&ok);
+            if (ok) {
+                chacha20LegacyPageSize = np;
+                if (chacha20LegacyPageSize < 0) {
+                    chacha20LegacyPageSize = 0;
+                } else if (chacha20LegacyPageSize > 65536) {
+                    chacha20LegacyPageSize = 65536;
+                }
+            }
+        }
         if (option.startsWith(QLatin1String("CHACHA20_KDF_ITER="))) {
             bool ok;
             const int nk = option.mid(18).toInt(&ok);
@@ -915,6 +955,18 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             const int nl = option.mid(17).toInt(&ok);
             if (ok) {
                 sqlcipherLegacy = nl;
+            }
+        }
+        if (option.startsWith(QLatin1String("SQLCIPHER_LEGACY_PAGE_SIZE="))) {
+            bool ok;
+            const int np = option.mid(27).toInt(&ok);
+            if (ok) {
+                sqlcipherLegacyPageSize = np;
+                if (sqlcipherLegacyPageSize < 0) {
+                    sqlcipherLegacyPageSize = 0;
+                } else if (sqlcipherLegacyPageSize > 65536) {
+                    sqlcipherLegacyPageSize = 65536;
+                }
             }
         }
         if (option.startsWith(QLatin1String("SQLCIPHER_KDF_ITER="))) {
@@ -1025,23 +1077,27 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             case AES_128_CBC:
             {
                 wxsqlite3_config_cipher(d->access, "aes128cbc", "legacy", aes128cbcLegacy ? 1 : 0);
+                wxsqlite3_config_cipher(d->access, "aes128cbc", "legacy_page_size", aes128cbcLegacyPageSize);
                 break;
             }
             case AES_256_CBC:
             {
                 wxsqlite3_config_cipher(d->access, "aes256cbc", "legacy", aes256cbcLegacy ? 1 : 0);
+                wxsqlite3_config_cipher(d->access, "aes256cbc", "legacy_page_size", aes256cbcLegacyPageSize);
                 wxsqlite3_config_cipher(d->access, "aes256cbc", "kdf_iter", aes256cbcKdfIter);
                 break;
             }
             case CHACHA20:
             {
                 wxsqlite3_config_cipher(d->access, "chacha20", "legacy", chacha20Legacy ? 1 : 0);
+                wxsqlite3_config_cipher(d->access, "chacha20", "legacy_page_size", chacha20LegacyPageSize);
                 wxsqlite3_config_cipher(d->access, "chacha20", "kdf_iter", chacha20KdfIter);
                 break;
             }
             case SQLCIPHER:
             {
                 wxsqlite3_config_cipher(d->access, "sqlcipher", "legacy", sqlcipherLegacy ? 1 : 0);
+                wxsqlite3_config_cipher(d->access, "sqlcipher", "legacy_page_size", sqlcipherLegacyPageSize);
                 wxsqlite3_config_cipher(d->access, "sqlcipher", "kdf_iter", sqlcipherKdfIter);
                 wxsqlite3_config_cipher(d->access, "sqlcipher", "fast_kdf_iter", sqlcipherFastKdfIter);
                 wxsqlite3_config_cipher(d->access, "sqlcipher", "hmac_use", sqlcipherHmacUse ? 1 : 0);
