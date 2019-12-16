@@ -1066,6 +1066,9 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             {
                 if (SQLITE_OK != sqlite3_rekey(d->access, password.toUtf8().constData(), password.size())) {
                     setLastError(qMakeError(d->access, tr("Cannot create password. Maybe it is encrypted?"), QSqlError::ConnectionError));
+                    setOpenError(true);
+                    setOpen(false);
+                    sqlite3_close_v2(d->access);
                     return false;
                 }
                 break;
@@ -1101,6 +1104,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
 
         setLastError(qMakeError(d->access, tr("Error opening database"), QSqlError::ConnectionError));
         setOpenError(true);
+        setOpen(false);
         return false;
     }
 }
