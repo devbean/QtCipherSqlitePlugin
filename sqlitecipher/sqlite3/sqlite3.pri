@@ -18,6 +18,7 @@ DEPENDPATH  += $$PWD
 HEADERS += \
     $$PWD/codec.h \
     $$PWD/fastpbkdf2.h \
+    $$PWD/mystdint.h \
     $$PWD/rijndael.h \
     $$PWD/sha1.h \
     $$PWD/sha2.h \

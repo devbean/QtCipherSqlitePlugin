@@ -1,6 +1,9 @@
 QT += testlib sql
 TEMPLATE = app
 TARGET = sqlitecipher_test
+
+CONFIG  += c++11
+
 unix: CONFIG += testcase
 win32: {
     CONFIG += build_all

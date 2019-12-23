@@ -53,7 +53,7 @@ void TestSqliteCipher::checkCompileOptions()
             break;
         }
     }
-    QVERIFY2(hasCodec, "'HAS_CODEC' should be in sqlcipher's compile_options.");
+    QVERIFY2(hasCodec, "'HAS_CODEC' should be in SQLITECIPHER's compile_options.");
 }
 
 void TestSqliteCipher::createDbWithPassphrase()

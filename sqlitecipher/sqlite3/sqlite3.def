@@ -74,6 +74,7 @@ sqlite3_create_function16
 sqlite3_create_function_v2
 sqlite3_create_module
 sqlite3_create_module_v2
+sqlite3_create_window_function
 sqlite3_data_count
 sqlite3_db_cacheflush
 sqlite3_db_config
@@ -84,6 +85,7 @@ sqlite3_db_readonly
 sqlite3_db_release_memory
 sqlite3_db_status
 sqlite3_declare_vtab
+sqlite3_drop_modules
 sqlite3_enable_load_extension
 sqlite3_enable_shared_cache
 sqlite3_errcode
@@ -189,6 +191,7 @@ sqlite3_status
 sqlite3_status64
 sqlite3_step
 sqlite3_stmt_busy
+sqlite3_stmt_isexplain
 sqlite3_stmt_readonly
 sqlite3_stmt_status
 sqlite3_str_append
@@ -230,6 +233,7 @@ sqlite3_value_bytes16
 sqlite3_value_double
 sqlite3_value_dup
 sqlite3_value_free
+sqlite3_value_frombind
 sqlite3_value_int
 sqlite3_value_int64
 sqlite3_value_nochange
@@ -266,5 +270,6 @@ sqlite3_win32_utf8_to_mbcs
 sqlite3_win32_utf8_to_mbcs_v2
 sqlite3_win32_utf8_to_unicode
 sqlite3_win32_write_debug
+wxsqlite3_codec_data
 wxsqlite3_config
 wxsqlite3_config_cipher

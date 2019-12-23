@@ -3,7 +3,7 @@
 ** Purpose:     Amalgamation of the wxSQLite3 encryption extension for SQLite
 ** Author:      Ulrich Telle
 ** Created:     2006-12-06
-** Copyright:   (c) 2006-2018 Ulrich Telle
+** Copyright:   (c) 2006-2019 Ulrich Telle
 ** License:     LGPL-3.0+ WITH WxWindows-exception-3.1
 */
 
@@ -24,7 +24,13 @@
 ** To enable the FILEIO support define SQLITE_ENABLE_FILEIO on compiling this module
 ** To enable the SERIES support define SQLITE_ENABLE_SERIES on compiling this module
 */
-#if defined(SQLITE_ENABLE_EXTFUNC) || defined(SQLITE_ENABLE_CSV) || defined(SQLITE_ENABLE_SHA3) || defined(SQLITE_ENABLE_CARRAY) || defined(SQLITE_ENABLE_FILEIO) || defined(SQLITE_ENABLE_SERIES)
+#if defined(SQLITE_HAS_CODEC)      || \
+    defined(SQLITE_ENABLE_EXTFUNC) || \
+    defined(SQLITE_ENABLE_CSV)     || \
+    defined(SQLITE_ENABLE_SHA3)    || \
+    defined(SQLITE_ENABLE_CARRAY)  || \
+    defined(SQLITE_ENABLE_FILEIO)  || \
+    defined(SQLITE_ENABLE_SERIES)
 #define sqlite3_open    sqlite3_open_internal
 #define sqlite3_open16  sqlite3_open16_internal
 #define sqlite3_open_v2 sqlite3_open_v2_internal
@@ -37,6 +43,19 @@
 #define SQLITE_USER_AUTHENTICATION 1
 #endif
 
+#if defined(_WIN32) || defined(WIN32)
+#include <windows.h>
+
+/* SQLite functions only needed on Win32 */
+extern void sqlite3_win32_write_debug(const char *, int);
+extern char *sqlite3_win32_unicode_to_utf8(LPCWSTR);
+extern char *sqlite3_win32_mbcs_to_utf8(const char *);
+extern char *sqlite3_win32_mbcs_to_utf8_v2(const char *, int);
+extern char *sqlite3_win32_utf8_to_mbcs(const char *);
+extern char *sqlite3_win32_utf8_to_mbcs_v2(const char *, int);
+extern LPWSTR sqlite3_win32_utf8_to_unicode(const char *);
+#endif
+
 #include "sqlite3.c"
 
 /*
@@ -46,29 +65,41 @@
 #include "sha1.c"
 #include "sha2.c"
 #include "fastpbkdf2.c"
+
+/* Prototypes for several crypto functions to make pedantic compilers happy */
+void chacha20_xor(void* data, size_t n, const uint8_t key[32], const uint8_t nonce[12], uint32_t counter);
+void poly1305(const uint8_t* msg, size_t n, const uint8_t key[32], uint8_t tag[16]);
+int poly1305_tagcmp(const uint8_t tag1[16], const uint8_t tag2[16]);
+void chacha20_rng(void* out, size_t n);
+
 #include "chacha20poly1305.c"
 
 #ifdef SQLITE_USER_AUTHENTICATION
+#include "sqlite3userauth.h"
 #include "userauth.c"
 #endif
 
-#if defined(SQLITE_ENABLE_EXTFUNC) || defined(SQLITE_ENABLE_CSV) || defined(SQLITE_ENABLE_SHA3) || defined(SQLITE_ENABLE_CARRAY) || defined(SQLITE_ENABLE_FILEIO) || defined(SQLITE_ENABLE_SERIES)
+#if defined(SQLITE_HAS_CODEC)      || \
+    defined(SQLITE_ENABLE_EXTFUNC) || \
+    defined(SQLITE_ENABLE_CSV)     || \
+    defined(SQLITE_ENABLE_SHA3)    || \
+    defined(SQLITE_ENABLE_CARRAY)  || \
+    defined(SQLITE_ENABLE_FILEIO)  || \
+    defined(SQLITE_ENABLE_SERIES)
 #undef sqlite3_open
 #undef sqlite3_open16
 #undef sqlite3_open_v2
 #endif
 
 #ifndef SQLITE_OMIT_DISKIO
-
 #ifdef SQLITE_HAS_CODEC
 
 /*
 ** Get the codec argument for this pager
 */
-
-void* mySqlite3PagerGetCodec(
-  Pager *pPager
-){
+static void*
+mySqlite3PagerGetCodec(Pager *pPager)
+{
 #if (SQLITE_VERSION_NUMBER >= 3006016)
   return sqlite3PagerGetCodec(pPager);
 #else
@@ -79,29 +110,38 @@ void* mySqlite3PagerGetCodec(
 /*
 ** Set the codec argument for this pager
 */
-
-void mySqlite3PagerSetCodec(
-  Pager *pPager,
-  void *(*xCodec)(void*,void*,Pgno,int),
-  void (*xCodecSizeChng)(void*,int,int),
-  void (*xCodecFree)(void*),
-  void *pCodec
-){
+static void
+mySqlite3PagerSetCodec(Pager *pPager,
+                       void *(*xCodec)(void*,void*,Pgno,int),
+                       void (*xCodecSizeChng)(void*,int,int),
+                       void (*xCodecFree)(void*),
+                       void *pCodec)
+{
   sqlite3PagerSetCodec(pPager, xCodec, xCodecSizeChng, xCodecFree, pCodec);
 }
 
+/*
+** Declare function prototype for registering the codec extension functions
+*/
+static int
+registerCodecExtensions(sqlite3 *db, char **pzErrMsg, const sqlite3_api_routines *pApi);
+
+/*
+** Codec implementation
+*/
 #include "rijndael.c"
 #include "codec.c"
 #include "codecext.c"
 
-#endif
-
-#endif
+#endif /* SQLITE_HAS_CODEC */
+#endif /* SQLITE_OMIT_DISKIO */
 
 /*
 ** Extension functions
 */
 #ifdef SQLITE_ENABLE_EXTFUNC
+/* Prototype for initialization function of EXTENSIONFUNCTIONS extension */
+int RegisterExtensionFunctions(sqlite3 *db);
 #include "extensionfunctions.c"
 #endif
 
@@ -109,6 +149,11 @@ void mySqlite3PagerSetCodec(
 ** CSV import
 */
 #ifdef SQLITE_ENABLE_CSV
+/* Prototype for initialization function of CSV extension */
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+int sqlite3_csv_init(sqlite3 *db, char **pzErrMsg, const sqlite3_api_routines *pApi);
 #include "csv.c"
 #endif
 
@@ -116,6 +161,11 @@ void mySqlite3PagerSetCodec(
 ** SHA3
 */
 #ifdef SQLITE_ENABLE_SHA3
+/* Prototype for initialization function of SHA3 extension */
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+int sqlite3_shathree_init(sqlite3 *db, char **pzErrMsg, const sqlite3_api_routines *pApi);
 #include "shathree.c"
 #endif
 
@@ -123,6 +173,11 @@ void mySqlite3PagerSetCodec(
 ** CARRAY
 */
 #ifdef SQLITE_ENABLE_CARRAY
+/* Prototype for initialization function of CARRAY extension */
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+int sqlite3_carray_init(sqlite3 *db, char **pzErrMsg, const sqlite3_api_routines *pApi);
 #include "carray.c"
 #endif
 
@@ -130,6 +185,11 @@ void mySqlite3PagerSetCodec(
 ** FILEIO
 */
 #ifdef SQLITE_ENABLE_FILEIO
+/* Prototype for initialization function of FILEIO extension */
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+int sqlite3_fileio_init(sqlite3 *db, char **pzErrMsg, const sqlite3_api_routines *pApi);
 
 /* MinGW specifics */
 #if (!defined(_WIN32) && !defined(WIN32)) || defined(__MINGW32__)
@@ -151,17 +211,35 @@ void mySqlite3PagerSetCodec(
 ** SERIES
 */
 #ifdef SQLITE_ENABLE_SERIES
+/* Prototype for initialization function of SERIES extension */
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+int sqlite3_series_init(sqlite3 *db, char **pzErrMsg, const sqlite3_api_routines *pApi);
 #include "series.c"
 #endif
 
-#if defined(SQLITE_ENABLE_EXTFUNC) || defined(SQLITE_ENABLE_CSV) || defined(SQLITE_ENABLE_SHA3) || defined(SQLITE_ENABLE_CARRAY) || defined(SQLITE_ENABLE_FILEIO) || defined(SQLITE_ENABLE_SERIES)
+#if defined(SQLITE_HAS_CODEC)      || \
+    defined(SQLITE_ENABLE_EXTFUNC) || \
+    defined(SQLITE_ENABLE_CSV)     || \
+    defined(SQLITE_ENABLE_SHA3)    || \
+    defined(SQLITE_ENABLE_CARRAY)  || \
+    defined(SQLITE_ENABLE_FILEIO)  || \
+    defined(SQLITE_ENABLE_SERIES)
 
-static
-int registerAllExtensions(sqlite3 *db, char **pzErrMsg, const sqlite3_api_routines *pApi)
+static int
+registerCodecExtensions(sqlite3 *db, char **pzErrMsg, const sqlite3_api_routines *pApi)
 {
   int rc = SQLITE_OK;
-#ifdef SQLITE_HAS_CODEC
-  CodecParameter* codecParameterTable = CloneCodecParameterTable();
+  CodecParameter* codecParameterTable = NULL;
+
+  if (sqlite3FindFunction(db, "wxsqlite3_config_table", 0, SQLITE_UTF8, 0) != NULL)
+  {
+    /* Return if codec extension functions are already defined */
+    return rc;
+  }
+
+  codecParameterTable = CloneCodecParameterTable();
   rc = (codecParameterTable != NULL) ? SQLITE_OK : SQLITE_NOMEM;
   if (rc == SQLITE_OK)
   {
@@ -183,6 +261,29 @@ int registerAllExtensions(sqlite3 *db, char **pzErrMsg, const sqlite3_api_routin
     rc = sqlite3_create_function(db, "wxsqlite3_config", 3, SQLITE_UTF8 | SQLITE_DETERMINISTIC,
                                  codecParameterTable, wxsqlite3_config_params, 0, 0);
   }
+  if (rc == SQLITE_OK)
+  {
+    rc = sqlite3_create_function(db, "wxsqlite3_codec_data", 1, SQLITE_UTF8 | SQLITE_DETERMINISTIC,
+                                 NULL, wxsqlite3_codec_data_sql, 0, 0);
+  }
+  if (rc == SQLITE_OK)
+  {
+    rc = sqlite3_create_function(db, "wxsqlite3_codec_data", 2, SQLITE_UTF8 | SQLITE_DETERMINISTIC,
+                                 NULL, wxsqlite3_codec_data_sql, 0, 0);
+  }
+  return rc;
+}
+
+static int
+registerAllExtensions(sqlite3 *db, char **pzErrMsg, const sqlite3_api_routines *pApi)
+{
+  int rc = SQLITE_OK;
+#ifdef SQLITE_HAS_CODEC
+  /*
+  ** Register the encryption extension functions and
+  ** configure the encryption extension from URI parameters as default
+  */
+  rc = CodecConfigureFromUri(db, NULL, 1);
 #endif
 #ifdef SQLITE_ENABLE_EXTFUNC
   if (rc == SQLITE_OK)
@@ -222,6 +323,11 @@ int registerAllExtensions(sqlite3 *db, char **pzErrMsg, const sqlite3_api_routin
 #endif
   return rc;
 }
+
+/* Prototypes for sqlite3_open function variants to make pedantic compilers happy */
+SQLITE_API int sqlite3_open(const char *filename, sqlite3 **ppDb);
+SQLITE_API int sqlite3_open16(const void *filename, sqlite3 **ppDb);
+SQLITE_API int sqlite3_open_v2(const char *filename, sqlite3 **ppDb, int flags, const char *zVfs);
 
 SQLITE_API int sqlite3_open(
   const char *filename,   /* Database filename (UTF-8) */
