@@ -120,7 +120,7 @@ static QVariant::Type qGetColumnType(const QString &tpName)
 }
 
 static QSqlError qMakeError(sqlite3 *access, const QString &descr, QSqlError::ErrorType type,
-                            int errorCode = -1)
+                            int errorCode)
 {
     return QSqlError(descr,
                      QString(reinterpret_cast<const QChar *>(sqlite3_errmsg16(access))),
@@ -477,7 +477,7 @@ static QString timespecToString(const QDateTime &dateTime)
 
 bool SQLiteResult::execBatch(bool arrayBind)
 {
-    Q_UNUSED(arrayBind);
+    Q_UNUSED(arrayBind)
     Q_D(QSqlResult);
     QScopedValueRollback<decltype(d->values)> valuesScope(d->values);
     QVector<QVariant> values = d->values;
@@ -816,6 +816,8 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
     if (isOpen())
         close();
 
+    qDebug() << db << password << conOpts;
+
     enum KEY_OP {
         OPEN_WITH_KEY = 0,
         CREATE_KEY,
@@ -828,7 +830,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
     bool sharedCache = false;
     bool openReadOnlyOption = false;
     bool openUriOption = false;
-    QString newPassword = QString::null;
+    QString newPassword = QString();
     int cipher = -1;
     // AES128CBC
     bool aes128cbcLegacy = false;
@@ -1036,7 +1038,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
         }
 #ifdef REGULAR_EXPRESSION_ENABLED
         else if (option.startsWith(regexpConnectOption)) {
-            QString regOption = option.mid(regexpConnectOption.size());
+            QString regOption = option.mid(regexpConnectOption.size()).trimmed();
             if (regOption.isEmpty()) {
                 defineRegexp = true;
             } else if (regOption.startsWith(QLatin1Char('='))) {
@@ -1152,13 +1154,15 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
         }
         return true;
     } else {
+        setLastError(qMakeError(d->access, tr("Error opening database"),
+                     QSqlError::ConnectionError, openResult));
+        setOpenError(true);
+
         if (d->access) {
             sqlite3_close(d->access);
             d->access = nullptr;
         }
 
-        setLastError(qMakeError(d->access, tr("Error opening database."), QSqlError::ConnectionError, openResult));
-        setOpenError(true);
         return false;
     }
 }
@@ -1299,7 +1303,15 @@ static QSqlIndex qGetTableInfo(QSqlQuery &q, const QString &tableName, bool only
             // INT PRIMARY KEY is not the same as INTEGER PRIMARY KEY!
             fld.setAutoValue(true);
         fld.setRequired(q.value(3).toInt() != 0);
-        fld.setDefaultValue(q.value(4));
+
+		QString defVal = q.value(4).toString();
+        if (!defVal.isEmpty() && defVal.at(0) == QLatin1Char('\'')) {
+            const int end = defVal.lastIndexOf(QLatin1Char('\''));
+            if (end > 0)
+                defVal = defVal.mid(1, end - 1);
+        }
+
+        fld.setDefaultValue(defVal);
         ind.append(fld);
     }
     return ind;

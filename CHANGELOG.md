@@ -1,3 +1,13 @@
+## 1.3 (To be decided)
+* Update to Sqlite 3.31.1
+* Update to wxSqlite3 to 4.5.1
+* Password must be provided from now on. If missed, `QSqlDatabase::open()` will return `false`.
+
+## 1.2 (2018-09-08)
+* Add legacy_page_size connection options for all ciphers.
+
+## 1.1 (2018-08-17)
+
 ## 1.0 (2018-07-23)
 * Update wxSQLite3 to 4.0.4
 * Add Qt private configuration in order to use Qt private headers.

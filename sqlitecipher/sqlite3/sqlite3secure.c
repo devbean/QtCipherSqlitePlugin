@@ -3,7 +3,7 @@
 ** Purpose:     Amalgamation of the wxSQLite3 encryption extension for SQLite
 ** Author:      Ulrich Telle
 ** Created:     2006-12-06
-** Copyright:   (c) 2006-2019 Ulrich Telle
+** Copyright:   (c) 2006-2020 Ulrich Telle
 ** License:     LGPL-3.0+ WITH WxWindows-exception-3.1
 */
 
@@ -23,6 +23,7 @@
 ** To enable the CARRAY support define SQLITE_ENABLE_CARRAY on compiling this module
 ** To enable the FILEIO support define SQLITE_ENABLE_FILEIO on compiling this module
 ** To enable the SERIES support define SQLITE_ENABLE_SERIES on compiling this module
+** To enable the UUID support define SQLITE_ENABLE_UUID on compiling this module
 */
 #if defined(SQLITE_HAS_CODEC)      || \
     defined(SQLITE_ENABLE_EXTFUNC) || \
@@ -30,7 +31,8 @@
     defined(SQLITE_ENABLE_SHA3)    || \
     defined(SQLITE_ENABLE_CARRAY)  || \
     defined(SQLITE_ENABLE_FILEIO)  || \
-    defined(SQLITE_ENABLE_SERIES)
+    defined(SQLITE_ENABLE_SERIES)  || \
+    defined(SQLITE_ENABLE_UUID)
 #define sqlite3_open    sqlite3_open_internal
 #define sqlite3_open16  sqlite3_open16_internal
 #define sqlite3_open_v2 sqlite3_open_v2_internal
@@ -57,6 +59,7 @@ extern LPWSTR sqlite3_win32_utf8_to_unicode(const char *);
 #endif
 
 #include "sqlite3.c"
+#include "sqlite3secure.h"
 
 /*
 ** Crypto algorithms
@@ -64,6 +67,8 @@ extern LPWSTR sqlite3_win32_utf8_to_unicode(const char *);
 #include "md5.c"
 #include "sha1.c"
 #include "sha2.c"
+
+#if HAVE_CIPHER_SQLCIPHER || HAVE_CIPHER_SQLCIPHER
 #include "fastpbkdf2.c"
 
 /* Prototypes for several crypto functions to make pedantic compilers happy */
@@ -73,6 +78,7 @@ int poly1305_tagcmp(const uint8_t tag1[16], const uint8_t tag2[16]);
 void chacha20_rng(void* out, size_t n);
 
 #include "chacha20poly1305.c"
+#endif
 
 #ifdef SQLITE_USER_AUTHENTICATION
 #include "sqlite3userauth.h"
@@ -85,7 +91,8 @@ void chacha20_rng(void* out, size_t n);
     defined(SQLITE_ENABLE_SHA3)    || \
     defined(SQLITE_ENABLE_CARRAY)  || \
     defined(SQLITE_ENABLE_FILEIO)  || \
-    defined(SQLITE_ENABLE_SERIES)
+    defined(SQLITE_ENABLE_SERIES)  || \
+    defined(SQLITE_ENABLE_UUID)
 #undef sqlite3_open
 #undef sqlite3_open16
 #undef sqlite3_open_v2
@@ -219,13 +226,26 @@ int sqlite3_series_init(sqlite3 *db, char **pzErrMsg, const sqlite3_api_routines
 #include "series.c"
 #endif
 
+/*
+** UUID
+*/
+#ifdef SQLITE_ENABLE_UUID
+/* Prototype for initialization function of UUID extension */
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
+int sqlite3_uuid_init(sqlite3 *db, char **pzErrMsg, const sqlite3_api_routines *pApi);
+#include "uuid.c"
+#endif
+
 #if defined(SQLITE_HAS_CODEC)      || \
     defined(SQLITE_ENABLE_EXTFUNC) || \
     defined(SQLITE_ENABLE_CSV)     || \
     defined(SQLITE_ENABLE_SHA3)    || \
     defined(SQLITE_ENABLE_CARRAY)  || \
     defined(SQLITE_ENABLE_FILEIO)  || \
-    defined(SQLITE_ENABLE_SERIES)
+    defined(SQLITE_ENABLE_SERIES)  || \
+    defined(SQLITE_ENABLE_UUID)
 
 static int
 registerCodecExtensions(sqlite3 *db, char **pzErrMsg, const sqlite3_api_routines *pApi)
@@ -319,6 +339,12 @@ registerAllExtensions(sqlite3 *db, char **pzErrMsg, const sqlite3_api_routines *
   if (rc == SQLITE_OK)
   {
     rc = sqlite3_series_init(db, NULL, NULL);
+  }
+#endif
+#ifdef SQLITE_ENABLE_UUID
+  if (rc == SQLITE_OK)
+  {
+    rc = sqlite3_uuid_init(db, NULL, NULL);
   }
 #endif
   return rc;
