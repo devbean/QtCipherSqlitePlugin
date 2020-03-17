@@ -38,7 +38,7 @@ private slots:
     void removePassphrase();
     void refuseToReadWithoutPassphrase();
     void refuseToReadWithIncorrectPassphrase();
-//    void allowToReadWithPassphrase();
+    void allowToReadWithPassphrase();
 
     void cleanupTestCase()
     {
@@ -68,12 +68,13 @@ void TestSqliteCipherPlugin::createDbWithPassphrase()
 void TestSqliteCipherPlugin::updatePassphrase()
 {
     QSqlDatabase db = QSqlDatabase::database("db", false);
-    db.setPassword("You shall not pass!?");
+    db.setPassword("You shall not pass!");
     db.setConnectOptions("QSQLITE_UPDATE_KEY=foobar");
 
     QVERIFY2(!db.open(), db.lastError().driverText().toLatin1().constData());
 
     db.setPassword("foobar");
+    db.setConnectOptions("QSQLITE_UPDATE_KEY=foobar");
     QVERIFY(db.open());
 }
 
@@ -82,42 +83,43 @@ void TestSqliteCipherPlugin::removePassphrase()
     QSqlDatabase db = QSqlDatabase::database("db", false);
     db.setPassword("You shall not pass!");
     db.setConnectOptions("QSQLITE_REMOVE_KEY");
-
     QVERIFY2(!db.open(), db.lastError().driverText().toLatin1().constData());
 
     db.setPassword("foobar");
+    db.setConnectOptions("QSQLITE_REMOVE_KEY");
+    QVERIFY(db.open());
+
+    // Recovery password
+    db.setPassword("foobar");
+    db.setConnectOptions("QSQLITE_CREATE_KEY");
     QVERIFY(db.open());
 }
 
 void TestSqliteCipherPlugin::refuseToReadWithoutPassphrase()
 {
     QSqlDatabase db = QSqlDatabase::database("db", false);
+    QVERIFY(db.open());
+    QSqlQuery q(db);
+    QVERIFY2(!q.exec("select bar from foo"), q.lastError().text().toLatin1().constData());
+}
 
-    QVERIFY2(db.open(), db.lastError().driverText().toLatin1().constData());
+void TestSqliteCipherPlugin::refuseToReadWithIncorrectPassphrase()
+{
+    QSqlDatabase db = QSqlDatabase::database("db", false);
+    db.setPassword("You shall not pass!");
+    QVERIFY2(!db.open(), db.lastError().driverText().toLatin1().constData());
+}
 
+void TestSqliteCipherPlugin::allowToReadWithPassphrase()
+{
+    QSqlDatabase db = QSqlDatabase::database("db", false);
+    db.setPassword("foobar");
+    QVERIFY(db.open());
     QSqlQuery q(db);
     QVERIFY2(q.exec("select bar from foo"), q.lastError().text().toLatin1().constData());
     QVERIFY(q.next());
     QVERIFY(q.value(0).toInt() == 42);
 }
-
-void TestSqliteCipherPlugin::refuseToReadWithIncorrectPassphrase()
-{
-//    QSqlDatabase db = QSqlDatabase::database("db_plugin");
-//    db.setPassword("You shell not pass!");
-//    QSqlQuery q(db);
-//    QVERIFY(!q.exec("select bar from foo"));
-}
-
-//void TestSqliteCipherPlugin::allowToReadWithPassphrase()
-//{
-////    QSqlDatabase db = QSqlDatabase::database("db_plugin");
-////    db.setPassword("foobar");
-////    QSqlQuery q(db);
-////    QVERIFY2(q.exec("select bar from foo"), q.lastError().text().toLatin1().constData());
-////    QVERIFY(q.next());
-////    QVERIFY(q.value(0).toInt() == 42);
-//}
 
 QTEST_GUILESS_MAIN(TestSqliteCipherPlugin)
 #include "main.moc"

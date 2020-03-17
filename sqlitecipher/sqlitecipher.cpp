@@ -91,7 +91,7 @@ QT_BEGIN_NAMESPACE
 static QString _q_escapeIdentifier(const QString &identifier)
 {
     QString res = identifier;
-    if(!identifier.isEmpty() && !identifier.startsWith(QLatin1Char('"')) && !identifier.endsWith(QLatin1Char('"'))) {
+    if (!identifier.isEmpty() && !identifier.startsWith(QLatin1Char('"')) && !identifier.endsWith(QLatin1Char('"'))) {
         res.replace(QLatin1Char('"'), QLatin1String("\"\""));
         res.prepend(QLatin1Char('"')).append(QLatin1Char('"'));
         res.replace(QLatin1Char('.'), QLatin1String("\".\""));
@@ -283,8 +283,8 @@ bool SQLiteResultPrivate::fetchNext(QSqlCachedResult::ValueCache &values, int id
         // already fetched
         Q_ASSERT(!initialFetch);
         skipRow = false;
-        for(int i=0;i<firstRow.count();i++)
-            values[i]=firstRow[i];
+        for(int i = 0; i < firstRow.count(); i++)
+            values[i] = firstRow[i];
         return skippedStatus;
     }
     skipRow = initialFetch;
@@ -702,8 +702,13 @@ static void _q_regexp(sqlite3_context* context, int argc, sqlite3_value** argv)
     auto regexp = cache->object(pattern);
     const bool wasCached = regexp;
 
-    if (!wasCached)
+    if (!wasCached) {
+#if QT_VERSION < QT_VERSION_CHECK(5, 12, 0)
         regexp = new QRegularExpression(pattern, QRegularExpression::DontCaptureOption | QRegularExpression::OptimizeOnFirstUsageOption);
+#else
+        regexp = new QRegularExpression(pattern, QRegularExpression::DontCaptureOption);
+#endif
+    }
 
     const bool found = subject.contains(*regexp);
 
@@ -816,8 +821,6 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
     if (isOpen())
         close();
 
-    qDebug() << db << password << conOpts;
-
     enum KEY_OP {
         OPEN_WITH_KEY = 0,
         CREATE_KEY,
@@ -844,13 +847,16 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
     int chacha20KdfIter = 64007;
     int chacha20LegacyPageSize = 4096;
     // SQLCIPHER
-    bool sqlcipherLegacy = false;
-    int sqlcipherKdfIter = 64000;
+    int sqlcipherLegacy = 0;
+    int sqlcipherKdfIter = 256000;
     int sqlcipherFastKdfIter = 2;
     bool sqlcipherHmacUse = true;
     int sqlcipherHmacPgno = 1;
     int sqlcipherHmacSaltMask = 0x3a;
-    int sqlcipherLegacyPageSize = 1024;
+    int sqlcipherLegacyPageSize = 4096;
+    int sqlcipherKdfAlgorithm = 2;
+    int sqlcipherHmacAlgorithm = 2;
+    int sqlcipherPlainTextHeaderSize = 0;
 
 #ifdef REGULAR_EXPRESSION_ENABLED
     static const QLatin1String regexpConnectOption = QLatin1String("QSQLITE_ENABLE_REGEXP");
@@ -858,169 +864,278 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
     int regexpCacheSize = 25;
 #endif
 
-    const QStringList opts = QString(conOpts).remove(QLatin1Char(' ')).split(QLatin1Char(';'));
-    foreach (const QString &option, opts) {
-        if (option.startsWith(QLatin1String("QSQLITE_BUSY_TIMEOUT="))) {
-            bool ok;
-            const int nt = option.midRef(21).toInt(&ok);
-            if (ok) {
-                timeOut = nt;
+    const auto opts = QString(conOpts).remove(QLatin1Char(' ')).split(QLatin1Char(';'));
+#if (QT_VERSION >= 0x050700)
+    for (auto option : opts) {
+#else
+    foreach (auto option : opts) {
+#endif
+        option = option.trimmed();
+        if (option.startsWith(QLatin1String("QSQLITE_BUSY_TIMEOUT"))) {
+            option = option.mid(20).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    timeOut = v;
+                }
             }
         }
-        if (option.startsWith(QLatin1String("QSQLITE_UPDATE_KEY="))) {
-            newPassword = option.mid(19);
+        if (option.startsWith(QLatin1String("QSQLITE_UPDATE_KEY"))) {
+            option = option.mid(18).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                newPassword = option.mid(1);
+            }
             keyOp = UPDATE_KEY;
         }
-        if (option.startsWith(QLatin1String("QSQLITE_USE_CIPHER="))) {
-            QString cipherName = option.mid(19);
-            cipher = _cipherNameToValue(cipherName);
+        if (option.startsWith(QLatin1String("QSQLITE_USE_CIPHER"))) {
+            option = option.mid(18).trimmed();
+            cipher = _cipherNameToValue(option.mid(1));
         }
-        if (option.startsWith(QLatin1String("AES128CBC_LEGACY="))) {
-            bool ok;
-            const int nl = option.mid(17).toInt(&ok);
-            if (ok) {
-                aes128cbcLegacy = nl;
-            }
-        }
-        if (option.startsWith(QLatin1String("AES128CBC_LEGACY_PAGE_SIZE="))) {
-            bool ok;
-            const int np = option.mid(27).toInt(&ok);
-            if (ok) {
-                aes128cbcLegacyPageSize = np;
-                if (aes128cbcLegacyPageSize < 0) {
-                    aes128cbcLegacyPageSize = 0;
-                } else if (aes128cbcLegacyPageSize > 65536) {
-                    aes128cbcLegacyPageSize = 65536;
+        if (option.startsWith(QLatin1String("AES128CBC_LEGACY"))) {
+            option = option.mid(16).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    aes128cbcLegacy = v;
                 }
             }
         }
-        if (option.startsWith(QLatin1String("AES256CBC_LEGACY="))) {
-            bool ok;
-            const int nl = option.mid(17).toInt(&ok);
-            if (ok) {
-                aes256cbcLegacy = nl;
-            }
-        }
-        if (option.startsWith(QLatin1String("AES256CBC_LEGACY_PAGE_SIZE="))) {
-            bool ok;
-            const int np = option.mid(27).toInt(&ok);
-            if (ok) {
-                aes256cbcLegacyPageSize = np;
-                if (aes256cbcLegacyPageSize < 0) {
-                    aes256cbcLegacyPageSize = 0;
-                } else if (aes256cbcLegacyPageSize > 65536) {
-                    aes256cbcLegacyPageSize = 65536;
+        if (option.startsWith(QLatin1String("AES128CBC_LEGACY_PAGE_SIZE"))) {
+            option = option.mid(26).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    aes128cbcLegacyPageSize = v;
+                    if (aes128cbcLegacyPageSize < 0) {
+                        aes128cbcLegacyPageSize = 0;
+                    } else if (aes128cbcLegacyPageSize > 65536) {
+                        aes128cbcLegacyPageSize = 65536;
+                    }
                 }
             }
         }
-        if (option.startsWith(QLatin1String("AES256CBC_KDF_ITER="))) {
-            bool ok;
-            const int nk = option.mid(19).toInt(&ok);
-            if (ok) {
-                aes256cbcKdfIter = nk;
-                if (aes256cbcKdfIter < 1) {
-                    aes256cbcKdfIter = 1;
+        if (option.startsWith(QLatin1String("AES256CBC_LEGACY"))) {
+            option = option.mid(16).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    aes256cbcLegacy = v;
                 }
             }
         }
-        if (option.startsWith(QLatin1String("CHACHA20_LEGACY="))) {
-            bool ok;
-            const int nl = option.mid(16).toInt(&ok);
-            if (ok) {
-                chacha20Legacy = nl;
-            }
-        }
-        if (option.startsWith(QLatin1String("CHACHA20_LEGACY_PAGE_SIZE="))) {
-            bool ok;
-            const int np = option.mid(26).toInt(&ok);
-            if (ok) {
-                chacha20LegacyPageSize = np;
-                if (chacha20LegacyPageSize < 0) {
-                    chacha20LegacyPageSize = 0;
-                } else if (chacha20LegacyPageSize > 65536) {
-                    chacha20LegacyPageSize = 65536;
+        if (option.startsWith(QLatin1String("AES256CBC_LEGACY_PAGE_SIZE"))) {
+            option = option.mid(26).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    aes256cbcLegacyPageSize = v;
+                    if (aes256cbcLegacyPageSize < 0) {
+                        aes256cbcLegacyPageSize = 0;
+                    } else if (aes256cbcLegacyPageSize > 65536) {
+                        aes256cbcLegacyPageSize = 65536;
+                    }
                 }
             }
         }
-        if (option.startsWith(QLatin1String("CHACHA20_KDF_ITER="))) {
-            bool ok;
-            const int nk = option.mid(18).toInt(&ok);
-            if (ok) {
-                chacha20KdfIter = nk;
-                if (chacha20KdfIter < 1) {
-                    chacha20KdfIter = 1;
+        if (option.startsWith(QLatin1String("AES256CBC_KDF_ITER"))) {
+            option = option.mid(18).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    aes256cbcKdfIter = v;
+                    if (aes256cbcKdfIter < 1) {
+                        aes256cbcKdfIter = 1;
+                    }
                 }
             }
         }
-        if (option.startsWith(QLatin1String("SQLCIPHER_LEGACY="))) {
-            bool ok;
-            const int nl = option.mid(17).toInt(&ok);
-            if (ok) {
-                sqlcipherLegacy = nl;
-            }
-        }
-        if (option.startsWith(QLatin1String("SQLCIPHER_LEGACY_PAGE_SIZE="))) {
-            bool ok;
-            const int np = option.mid(27).toInt(&ok);
-            if (ok) {
-                sqlcipherLegacyPageSize = np;
-                if (sqlcipherLegacyPageSize < 0) {
-                    sqlcipherLegacyPageSize = 0;
-                } else if (sqlcipherLegacyPageSize > 65536) {
-                    sqlcipherLegacyPageSize = 65536;
+        if (option.startsWith(QLatin1String("CHACHA20_LEGACY"))) {
+            option = option.mid(15).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    chacha20Legacy = v;
                 }
             }
         }
-        if (option.startsWith(QLatin1String("SQLCIPHER_KDF_ITER="))) {
-            bool ok;
-            const int nk = option.mid(19).toInt(&ok);
-            if (ok) {
-                sqlcipherKdfIter = nk;
-                if (sqlcipherKdfIter < 1) {
-                    sqlcipherKdfIter = 1;
+        if (option.startsWith(QLatin1String("CHACHA20_LEGACY_PAGE_SIZE"))) {
+            option = option.mid(25).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    chacha20LegacyPageSize = v;
+                    if (chacha20LegacyPageSize < 0) {
+                        chacha20LegacyPageSize = 0;
+                    } else if (chacha20LegacyPageSize > 65536) {
+                        chacha20LegacyPageSize = 65536;
+                    }
                 }
             }
         }
-        if (option.startsWith(QLatin1String("SQLCIPHER_FAST_KDF_ITER="))) {
-            bool ok;
-            const int nf = option.mid(24).toInt(&ok);
-            if (ok) {
-                sqlcipherFastKdfIter = nf;
-                if (sqlcipherFastKdfIter < 1) {
-                    sqlcipherFastKdfIter = 1;
+        if (option.startsWith(QLatin1String("CHACHA20_KDF_ITER"))) {
+            option = option.mid(17).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    chacha20KdfIter = v;
+                    if (chacha20KdfIter < 1) {
+                        chacha20KdfIter = 1;
+                    }
                 }
             }
         }
-        if (option.startsWith(QLatin1String("SQLCIPHER_HMAC_USE="))) {
-            bool ok;
-            const int nh = option.mid(19).toInt(&ok);
-            if (ok) {
-                sqlcipherHmacUse = nh;
-            }
-        }
-        if (option.startsWith(QLatin1String("SQLCIPHER_HMAC_PGNO="))) {
-            bool ok;
-            const int np = option.mid(20).toInt(&ok);
-            if (ok) {
-                sqlcipherHmacPgno = np;
-                if (sqlcipherHmacPgno < 0) {
-                    sqlcipherHmacPgno = 0;
-                }
-                if (sqlcipherHmacPgno > 2) {
-                    sqlcipherHmacPgno = 2;
+        if (option.startsWith(QLatin1String("SQLCIPHER_LEGACY"))) {
+            option = option.mid(16).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    sqlcipherLegacy = v;
+                    if (sqlcipherLegacy < 0) {
+                        sqlcipherLegacy = 0;
+                    } else if (sqlcipherLegacy > 4) {
+                        sqlcipherLegacy = 4;
+                    }
                 }
             }
         }
-        if (option.startsWith(QLatin1String("SQLCIPHER_HMAC_SALT_MASK="))) {
-            bool ok;
-            const int ns = option.mid(25).toInt(&ok);
-            if (ok) {
-                sqlcipherHmacSaltMask = ns;
-                if (sqlcipherHmacSaltMask < 0) {
-                    sqlcipherHmacSaltMask = 0;
+        if (option.startsWith(QLatin1String("SQLCIPHER_LEGACY_PAGE_SIZE"))) {
+            option = option.mid(26).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    sqlcipherLegacyPageSize = v;
+                    if (sqlcipherLegacyPageSize < 0) {
+                        sqlcipherLegacyPageSize = 0;
+                    } else if (sqlcipherLegacyPageSize > 65536) {
+                        sqlcipherLegacyPageSize = 65536;
+                    }
                 }
-                if (sqlcipherHmacSaltMask > 255) {
-                    sqlcipherHmacSaltMask = 255;
+            }
+        }
+        if (option.startsWith(QLatin1String("SQLCIPHER_KDF_ITER"))) {
+            option = option.mid(18).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    sqlcipherKdfIter = v;
+                    if (sqlcipherKdfIter < 1) {
+                        sqlcipherKdfIter = 1;
+                    }
+                }
+            }
+        }
+        if (option.startsWith(QLatin1String("SQLCIPHER_FAST_KDF_ITER"))) {
+            option = option.mid(23).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    sqlcipherFastKdfIter = v;
+                    if (sqlcipherFastKdfIter < 1) {
+                        sqlcipherFastKdfIter = 1;
+                    }
+                }
+            }
+        }
+        if (option.startsWith(QLatin1String("SQLCIPHER_HMAC_USE"))) {
+            option = option.mid(18).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    sqlcipherHmacUse = v;
+                }
+            }
+        }
+        if (option.startsWith(QLatin1String("SQLCIPHER_HMAC_PGNO"))) {
+            option = option.mid(19).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    sqlcipherHmacPgno = v;
+                    if (sqlcipherHmacPgno < 0) {
+                        sqlcipherHmacPgno = 0;
+                    }
+                    if (sqlcipherHmacPgno > 2) {
+                        sqlcipherHmacPgno = 2;
+                    }
+                }
+            }
+        }
+        if (option.startsWith(QLatin1String("SQLCIPHER_HMAC_SALT_MASK"))) {
+            option = option.mid(24).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    sqlcipherHmacSaltMask = v;
+                    if (sqlcipherHmacSaltMask < 0) {
+                        sqlcipherHmacSaltMask = 0;
+                    }
+                    if (sqlcipherHmacSaltMask > 255) {
+                        sqlcipherHmacSaltMask = 255;
+                    }
+                }
+            }
+        }
+        if (option.startsWith(QLatin1String("SQLCIPHER_KDF_ALGORITHM"))) {
+            option = option.mid(23).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    sqlcipherKdfAlgorithm = v;
+                    if (sqlcipherKdfAlgorithm < 0) {
+                        sqlcipherKdfAlgorithm = 0;
+                    }
+                    if (sqlcipherKdfAlgorithm > 2) {
+                        sqlcipherKdfAlgorithm = 2;
+                    }
+                }
+            }
+        }
+        if (option.startsWith(QLatin1String("SQLCIPHER_HMAC_ALGORITHM"))) {
+            option = option.mid(24).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    sqlcipherHmacAlgorithm = v;
+                    if (sqlcipherHmacAlgorithm < 0) {
+                        sqlcipherHmacAlgorithm = 0;
+                    }
+                    if (sqlcipherHmacAlgorithm > 2) {
+                        sqlcipherHmacAlgorithm = 2;
+                    }
+                }
+            }
+        }
+        if (option.startsWith(QLatin1String("SQLCIPHER_PLAINTEXT_HEADER_SIZE"))) {
+            option = option.mid(31).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    sqlcipherPlainTextHeaderSize = v;
+                    if (sqlcipherPlainTextHeaderSize < 0) {
+                        sqlcipherPlainTextHeaderSize = 0;
+                    }
+                    if (sqlcipherPlainTextHeaderSize > 100) {
+                        sqlcipherPlainTextHeaderSize = 100;
+                    }
                 }
             }
         }
@@ -1038,12 +1153,12 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
         }
 #ifdef REGULAR_EXPRESSION_ENABLED
         else if (option.startsWith(regexpConnectOption)) {
-            QString regOption = option.mid(regexpConnectOption.size()).trimmed();
-            if (regOption.isEmpty()) {
+            option = option.mid(regexpConnectOption.size()).trimmed();
+            if (option.isEmpty()) {
                 defineRegexp = true;
-            } else if (regOption.startsWith(QLatin1Char('='))) {
+            } else if (option.startsWith(QLatin1Char('='))) {
                 bool ok = false;
-                const int cacheSize = regOption.mid(1).trimmed().toInt(&ok);
+                const int cacheSize = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     defineRegexp = true;
                     if (cacheSize > 0)
@@ -1099,13 +1214,16 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             }
             case SQLCIPHER:
             {
-                wxsqlite3_config_cipher(d->access, "sqlcipher", "legacy", sqlcipherLegacy ? 1 : 0);
+                wxsqlite3_config_cipher(d->access, "sqlcipher", "legacy", sqlcipherLegacy);
                 wxsqlite3_config_cipher(d->access, "sqlcipher", "legacy_page_size", sqlcipherLegacyPageSize);
                 wxsqlite3_config_cipher(d->access, "sqlcipher", "kdf_iter", sqlcipherKdfIter);
                 wxsqlite3_config_cipher(d->access, "sqlcipher", "fast_kdf_iter", sqlcipherFastKdfIter);
                 wxsqlite3_config_cipher(d->access, "sqlcipher", "hmac_use", sqlcipherHmacUse ? 1 : 0);
                 wxsqlite3_config_cipher(d->access, "sqlcipher", "hmac_pgno", sqlcipherHmacPgno);
                 wxsqlite3_config_cipher(d->access, "sqlcipher", "hmac_salt_mask", sqlcipherHmacSaltMask);
+                wxsqlite3_config_cipher(d->access, "sqlcipher", "kdf_algorithm", sqlcipherKdfAlgorithm);
+                wxsqlite3_config_cipher(d->access, "sqlcipher", "hmac_algorithm", sqlcipherHmacAlgorithm);
+                wxsqlite3_config_cipher(d->access, "sqlcipher", "plaintext_header_size", sqlcipherPlainTextHeaderSize);
                 break;
             }
             default:
@@ -1172,7 +1290,7 @@ void SQLiteCipherDriver::close()
     Q_D(SQLiteCipherDriver);
     if (isOpen()) {
 #if (QT_VERSION >= 0x050700)
-        for (SQLiteResult *result : qAsConst(d->results)) {
+        for (auto result : qAsConst(d->results)) {
 #else
         foreach (SQLiteResult *result, d->results) {
 #endif
@@ -1293,6 +1411,13 @@ static QSqlIndex qGetTableInfo(QSqlQuery &q, const QString &tableName, bool only
         if (onlyPIndex && !isPk)
             continue;
         QString typeName = q.value(2).toString().toLower();
+		QString defVal = q.value(4).toString();
+        if (!defVal.isEmpty() && defVal.at(0) == QLatin1Char('\'')) {
+            const int end = defVal.lastIndexOf(QLatin1Char('\''));
+            if (end > 0)
+                defVal = defVal.mid(1, end - 1);
+        }
+
 #if QT_VERSION < QT_VERSION_CHECK(5, 10, 0)
         QSqlField fld(q.value(1).toString(), qGetColumnType(typeName));
 #else
@@ -1303,14 +1428,6 @@ static QSqlIndex qGetTableInfo(QSqlQuery &q, const QString &tableName, bool only
             // INT PRIMARY KEY is not the same as INTEGER PRIMARY KEY!
             fld.setAutoValue(true);
         fld.setRequired(q.value(3).toInt() != 0);
-
-		QString defVal = q.value(4).toString();
-        if (!defVal.isEmpty() && defVal.at(0) == QLatin1Char('\'')) {
-            const int end = defVal.lastIndexOf(QLatin1Char('\''));
-            if (end > 0)
-                defVal = defVal.mid(1, end - 1);
-        }
-
         fld.setDefaultValue(defVal);
         ind.append(fld);
     }

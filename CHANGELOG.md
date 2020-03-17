@@ -1,7 +1,7 @@
 ## 1.3 (To be decided)
 * Update to Sqlite 3.31.1
 * Update to wxSqlite3 to 4.5.1
-* Password must be provided from now on. If missed, `QSqlDatabase::open()` will return `false`.
+* Connection options will be read by trimed.
 
 ## 1.2 (2018-09-08)
 * Add legacy_page_size connection options for all ciphers.
