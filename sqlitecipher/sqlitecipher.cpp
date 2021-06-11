@@ -65,8 +65,31 @@
 # include <unistd.h>
 #endif
 
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+  #define VALUE_TYPE_BOOL      QMetaType::Bool
+  #define VALUE_TYPE_INT       QMetaType::Int
+  #define VALUE_TYPE_DOUBLE    QMetaType::Double
+  #define VALUE_TYPE_STRING    QMetaType::QString
+  #define VALUE_TYPE_BYTEARRAY QMetaType::QByteArray
+  #define VALUE_TYPE_UINT      QMetaType::UInt
+  #define VALUE_TYPE_LONGLONG  QMetaType::LongLong
+  #define VALUE_TYPE_DATETIME  QMetaType::QDateTime
+  #define VALUE_TYPE_TIME      QMetaType::QTime
+  #define VALUE_TYPE_INVALID   QMetaType::UnknownType
+#else
+  #define VALUE_TYPE_BOOL      QVariant::Bool
+  #define VALUE_TYPE_INT       QVariant::Int
+  #define VALUE_TYPE_DOUBLE    QVariant::Double
+  #define VALUE_TYPE_STRING    QVariant::String
+  #define VALUE_TYPE_BYTEARRAY QVariant::ByteArray
+  #define VALUE_TYPE_UINT      QVariant::UInt
+  #define VALUE_TYPE_LONGLONG  QVariant::LongLong
+  #define VALUE_TYPE_DATETIME  QVariant::DateTime
+  #define VALUE_TYPE_TIME      QVariant::Time
+  #define VALUE_TYPE_INVALID   QVariant::Invalid
+#endif
+
 extern "C" {
-// #include "sqlite3secure.h"
 # include "sqlite3mc_amalgamation.h"
 }
 
@@ -100,24 +123,30 @@ static QString _q_escapeIdentifier(const QString &identifier)
     return res;
 }
 
-static QVariant::Type qGetColumnType(const QString &tpName)
+static
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+QMetaType::Type
+#else
+QVariant::Type
+#endif
+qGetColumnType(const QString &tpName)
 {
     const QString typeName = tpName.toLower();
 
     if (typeName == QLatin1String("integer")
         || typeName == QLatin1String("int"))
-        return QVariant::Int;
+        return VALUE_TYPE_INT;
     if (typeName == QLatin1String("double")
         || typeName == QLatin1String("float")
         || typeName == QLatin1String("real")
         || typeName.startsWith(QLatin1String("numeric")))
-        return QVariant::Double;
+        return VALUE_TYPE_DOUBLE;
     if (typeName == QLatin1String("blob"))
-        return QVariant::ByteArray;
+        return VALUE_TYPE_BYTEARRAY;
     if (typeName == QLatin1String("boolean")
         || typeName == QLatin1String("bool"))
-        return QVariant::Bool;
-    return QVariant::String;
+        return VALUE_TYPE_BOOL;
+    return VALUE_TYPE_STRING;
 }
 
 static QSqlError qMakeError(sqlite3 *access, const QString &descr, QSqlError::ErrorType type,
@@ -238,7 +267,11 @@ void SQLiteResultPrivate::initColumns(bool emptyResultset)
         // sqlite3_column_type is documented to have undefined behavior if the result set is empty
         int stp = emptyResultset ? -1 : sqlite3_column_type(stmt, i);
 
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+        int fieldType;
+#else
         QVariant::Type fieldType;
+#endif
 
         if (!typeName.isEmpty()) {
             fieldType = qGetColumnType(typeName);
@@ -246,28 +279,30 @@ void SQLiteResultPrivate::initColumns(bool emptyResultset)
             // Get the proper type for the field based on stp value
             switch (stp) {
             case SQLITE_INTEGER:
-                fieldType = QVariant::Int;
+                fieldType = VALUE_TYPE_INT;
                 break;
             case SQLITE_FLOAT:
-                fieldType = QVariant::Double;
+                fieldType = VALUE_TYPE_DOUBLE;
                 break;
             case SQLITE_BLOB:
-                fieldType = QVariant::ByteArray;
+                fieldType = VALUE_TYPE_BYTEARRAY;
                 break;
             case SQLITE_TEXT:
-                fieldType = QVariant::String;
+                fieldType = VALUE_TYPE_STRING;
                 break;
             case SQLITE_NULL:
             default:
-                fieldType = QVariant::Invalid;
+                fieldType = VALUE_TYPE_INVALID;
                 break;
             }
         }
 
 #if QT_VERSION < QT_VERSION_CHECK(5, 10, 0)
         QSqlField fld(colName, fieldType);
-#else
+#elif QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
         QSqlField fld(colName, fieldType, tableName);
+#else // QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        QSqlField fld(colName, QMetaType(fieldType), tableName);
 #endif
         fld.setSqlType(stp);
         rInf.append(fld);
@@ -337,7 +372,11 @@ bool SQLiteResultPrivate::fetchNext(QSqlCachedResult::ValueCache &values, int id
                 };
                 break;
             case SQLITE_NULL:
-                values[i + idx] = QVariant(QVariant::String);
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+                values[i + idx] = QVariant(QMetaType::fromType<QString>());
+#else
+                values[i + idx] = QVariant(VALUE_TYPE_STRING);
+#endif
                 break;
             default:
                 values[i + idx] = QString(reinterpret_cast<const QChar *>(
@@ -543,7 +582,12 @@ bool SQLiteResult::exec()
         for (int i = 0, currentIndex = 0; i < values.size(); ++i) {
             if (handledIndexes.contains(i))
                 continue;
-            const auto placeHolder = QString::fromUtf8(sqlite3_bind_parameter_name(d->stmt, currentIndex + 1));
+            const char *parameterName = sqlite3_bind_parameter_name(d->stmt, currentIndex + 1);
+            if (!parameterName) {
+                paramCountIsValid = false;
+                continue;
+            }
+            const auto placeHolder = QString::fromUtf8(parameterName);
             const auto &indexes = d->indexes.value(placeHolder);
 #if QT_VERSION <= QT_VERSION_CHECK(5, 11, 0)
             handledIndexes << QVector<int>::fromList(indexes);
@@ -565,38 +609,42 @@ bool SQLiteResult::exec()
             if (value.isNull()) {
                 res = sqlite3_bind_null(d->stmt, i + 1);
             } else {
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+                switch (value.userType()) {
+#else
                 switch (value.type()) {
-                case QVariant::ByteArray: {
+#endif
+                case VALUE_TYPE_BYTEARRAY: {
                     const QByteArray *ba = static_cast<const QByteArray*>(value.constData());
                     res = sqlite3_bind_blob(d->stmt, i + 1, ba->constData(),
                                             ba->size(), SQLITE_STATIC);
                     break; }
-                case QVariant::Int:
-                case QVariant::Bool:
+                case VALUE_TYPE_INT:
+                case VALUE_TYPE_BOOL:
                     res = sqlite3_bind_int(d->stmt, i + 1, value.toInt());
                     break;
-                case QVariant::Double:
+                case VALUE_TYPE_DOUBLE:
                     res = sqlite3_bind_double(d->stmt, i + 1, value.toDouble());
                     break;
-                case QVariant::UInt:
-                case QVariant::LongLong:
+                case VALUE_TYPE_UINT:
+                case VALUE_TYPE_LONGLONG:
                     res = sqlite3_bind_int64(d->stmt, i + 1, value.toLongLong());
                     break;
-                case QVariant::DateTime: {
+                case VALUE_TYPE_DATETIME: {
                     const QDateTime dateTime = value.toDateTime();
                     const QString str = dateTime.toString(QLatin1String("yyyy-MM-ddThh:mm:ss.zzz") + timespecToString(dateTime));
                     res = sqlite3_bind_text16(d->stmt, i + 1, str.utf16(),
                                               str.size() * sizeof(ushort), SQLITE_TRANSIENT);
                     break;
                 }
-                case QVariant::Time: {
+                case VALUE_TYPE_TIME: {
                     const QTime time = value.toTime();
                     const QString str = time.toString(QStringLiteral("hh:mm:ss.zzz"));
                     res = sqlite3_bind_text16(d->stmt, i + 1, str.utf16(),
                                               str.size() * sizeof(ushort), SQLITE_TRANSIENT);
                     break;
                 }
-                case QVariant::String: {
+                case VALUE_TYPE_STRING: {
                     // lifetime of string == lifetime of its qvariant
                     const QString *str = static_cast<const QString*>(value.constData());
                     res = sqlite3_bind_text16(d->stmt, i + 1, str->utf16(),
@@ -793,6 +841,8 @@ static int _cipherNameToValue(const QString &name) {
         return CHACHA20;
     } else if (lowerName == QStringLiteral("sqlcipher")) {
         return SQLCIPHER;
+    } else if (lowerName == QStringLiteral("rc4")) {
+        return RC4;
     } else {
         return UNKNOWN_CIPHER;
     }
@@ -881,7 +931,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(20).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     timeOut = v;
                 }
@@ -902,7 +952,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(16).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     aes128cbcLegacy = v;
                 }
@@ -912,7 +962,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(26).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     aes128cbcLegacyPageSize = v;
                     if (aes128cbcLegacyPageSize < 0) {
@@ -927,7 +977,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(16).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     aes256cbcLegacy = v;
                 }
@@ -937,7 +987,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(26).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     aes256cbcLegacyPageSize = v;
                     if (aes256cbcLegacyPageSize < 0) {
@@ -952,7 +1002,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(18).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     aes256cbcKdfIter = v;
                     if (aes256cbcKdfIter < 1) {
@@ -965,7 +1015,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(15).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     chacha20Legacy = v;
                 }
@@ -975,7 +1025,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(25).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     chacha20LegacyPageSize = v;
                     if (chacha20LegacyPageSize < 0) {
@@ -990,7 +1040,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(17).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     chacha20KdfIter = v;
                     if (chacha20KdfIter < 1) {
@@ -1003,7 +1053,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(16).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     sqlcipherLegacy = v;
                     if (sqlcipherLegacy < 0) {
@@ -1018,7 +1068,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(26).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     sqlcipherLegacyPageSize = v;
                     if (sqlcipherLegacyPageSize < 0) {
@@ -1033,7 +1083,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(18).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     sqlcipherKdfIter = v;
                     if (sqlcipherKdfIter < 1) {
@@ -1046,7 +1096,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(23).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     sqlcipherFastKdfIter = v;
                     if (sqlcipherFastKdfIter < 1) {
@@ -1059,7 +1109,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(18).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     sqlcipherHmacUse = v;
                 }
@@ -1069,7 +1119,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(19).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     sqlcipherHmacPgno = v;
                     if (sqlcipherHmacPgno < 0) {
@@ -1085,7 +1135,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(24).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     sqlcipherHmacSaltMask = v;
                     if (sqlcipherHmacSaltMask < 0) {
@@ -1101,7 +1151,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(23).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     sqlcipherKdfAlgorithm = v;
                     if (sqlcipherKdfAlgorithm < 0) {
@@ -1117,7 +1167,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(24).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     sqlcipherHmacAlgorithm = v;
                     if (sqlcipherHmacAlgorithm < 0) {
@@ -1133,7 +1183,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(31).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     sqlcipherPlainTextHeaderSize = v;
                     if (sqlcipherPlainTextHeaderSize < 0) {
@@ -1149,7 +1199,7 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
             option = option.mid(20).trimmed();
             if (option.startsWith(QLatin1Char('='))) {
                 bool ok;
-                const int v = option.midRef(1).trimmed().toInt(&ok);
+                const int v = option.mid(1).trimmed().toInt(&ok);
                 if (ok) {
                     rc4LegacyPageSize = v;
                     if (rc4LegacyPageSize < 0) {
@@ -1447,8 +1497,10 @@ static QSqlIndex qGetTableInfo(QSqlQuery &q, const QString &tableName, bool only
 
 #if QT_VERSION < QT_VERSION_CHECK(5, 10, 0)
         QSqlField fld(q.value(1).toString(), qGetColumnType(typeName));
-#else
+#elif QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
         QSqlField fld(q.value(1).toString(), qGetColumnType(typeName), tableName);
+#else // QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        QSqlField fld(q.value(1).toString(), QMetaType(qGetColumnType(typeName)), tableName);
 #endif
         if (isPk && (typeName == QLatin1String("integer")))
             // INTEGER PRIMARY KEY fields are auto-generated in sqlite
