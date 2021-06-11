@@ -1,2 +1,2 @@
 TEMPLATE = subdirs
-SUBDIRS += sqlitecipher test testapp
+SUBDIRS += sqlitecipher test_plugin demo

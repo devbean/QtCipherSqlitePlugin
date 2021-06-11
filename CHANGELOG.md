@@ -1,3 +1,12 @@
+## 1.3 (To be decided)
+* Update to Sqlite 3.35.5
+* Update to wxSqlite3 to 4.7.2
+
+## 1.2 (2018-09-08)
+* Add legacy_page_size connection options for all ciphers.
+
+## 1.1 (2018-08-17)
+
 ## 1.0 (2018-07-23)
 * Update wxSQLite3 to 4.0.4
 * Add Qt private configuration in order to use Qt private headers.

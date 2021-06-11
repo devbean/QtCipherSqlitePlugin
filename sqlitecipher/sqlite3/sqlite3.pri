@@ -16,40 +16,7 @@ INCLUDEPATH += $$PWD
 DEPENDPATH  += $$PWD
 
 HEADERS += \
-    $$PWD/codec.h \
-    $$PWD/fastpbkdf2.h \
-    $$PWD/rijndael.h \
-    $$PWD/sha1.h \
-    $$PWD/sha2.h \
-    $$PWD/sqlite3.h \
-    $$PWD/sqlite3ext.h \
-    $$PWD/sqlite3secure.h \
-    $$PWD/sqlite3userauth.h \
-    $$PWD/test_windirent.h
+    $$PWD/sqlite3mc_amalgamation.h
 
 SOURCES += \
-    $$PWD/carray.c \
-    $$PWD/chacha20poly1305.c \
-    $$PWD/codec.c \
-    $$PWD/codecext.c \
-    $$PWD/csv.c \
-    $$PWD/extensionfunctions.c \
-    $$PWD/fastpbkdf2.c \
-    $$PWD/fileio.c \
-    $$PWD/md5.c \
-    $$PWD/regexp.c \
-    $$PWD/rekeyvacuum.c \
-    $$PWD/rijndael.c \
-    $$PWD/series.c \
-    $$PWD/sha1.c \
-    $$PWD/sha2.c \
-    $$PWD/shathree.c \
-    $$PWD/sqlite3.c \
-    $$PWD/sqlite3secure.c \
-    $$PWD/test_windirent.c \
-    $$PWD/userauth.c
-
-OTHER_FILES += \
-    $$PWD/sqlite3.def \
-    $$PWD/sqlite3.rc \
-    $$PWD/sqlite3shell.rc
+    $$PWD/sqlite3mc_amalgamation.c

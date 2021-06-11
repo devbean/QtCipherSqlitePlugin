@@ -84,9 +84,7 @@ QStringList SqliteCipherDriverPlugin::keys() const
     l  << QLatin1String(DriverName);
     return l;
 }
-#endif
 
-#if (QT_VERSION < 0x050000)
 Q_EXPORT_STATIC_PLUGIN(SqliteCipherDriverPlugin)
 Q_EXPORT_PLUGIN2(qsqlite, SqliteCipherDriverPlugin)
 #endif

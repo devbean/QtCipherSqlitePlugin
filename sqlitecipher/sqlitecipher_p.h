@@ -67,8 +67,8 @@ class Q_EXPORT_SQLDRIVER_SQLITE SQLiteCipherDriver : public QSqlDriver
     Q_OBJECT
     friend class SQLiteResultPrivate;
 public:
-    explicit SQLiteCipherDriver(QObject *parent = 0);
-    explicit SQLiteCipherDriver(sqlite3 *connection, QObject *parent = 0);
+    explicit SQLiteCipherDriver(QObject *parent = nullptr);
+    explicit SQLiteCipherDriver(sqlite3 *connection, QObject *parent = nullptr);
     ~SQLiteCipherDriver();
     bool hasFeature(DriverFeature f) const DECL_OVERRIDE;
     bool open(const QString & db,
