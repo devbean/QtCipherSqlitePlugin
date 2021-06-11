@@ -1,6 +1,10 @@
 ## 1.3 (To be decided)
 * Update to Sqlite 3.35.5
 * Update to wxSqlite3 to 4.7.2
+* Support Qt 6
+* Tested on following versions:
+  - Qt 5.15.2 MSVC2019
+  - Qt 6.0.3 MSVC2019
 
 ## 1.2 (2018-09-08)
 * Add legacy_page_size connection options for all ciphers.
