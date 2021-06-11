@@ -59,7 +59,7 @@ void TestSqliteCipherPlugin::createDbWithPassphrase()
     QStringList queries;
     queries << "create table IF NOT EXISTS foo(bar integer)"
             << "insert into foo values (42)";
-    for(const QString& qs : queries)
+    for(const QString& qs : qAsConst(queries))
     {
         QVERIFY2(q.exec(qs), q.lastError().text().toLatin1().constData());
     }

@@ -66,7 +66,8 @@
 #endif
 
 extern "C" {
-#include "sqlite3secure.h"
+// #include "sqlite3secure.h"
+# include "sqlite3mc_amalgamation.h"
 }
 
 Q_DECLARE_METATYPE(sqlite3*)
@@ -778,7 +779,8 @@ enum QtSqliteCipher {
     AES_128_CBC,
     AES_256_CBC,
     CHACHA20,
-    SQLCIPHER
+    SQLCIPHER,
+    RC4
 };
 
 static int _cipherNameToValue(const QString &name) {
@@ -806,6 +808,8 @@ static QString _cipherValueToName(const QtSqliteCipher &cipher) {
         return QStringLiteral("CHACHA20");
     case SQLCIPHER:
         return QStringLiteral("SQLCIPHER");
+    case RC4:
+        return QStringLiteral("RC4");
     default:
         return QStringLiteral("UNKNOWN");
     }
@@ -857,6 +861,8 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
     int sqlcipherKdfAlgorithm = 2;
     int sqlcipherHmacAlgorithm = 2;
     int sqlcipherPlainTextHeaderSize = 0;
+    // RC4
+    int rc4LegacyPageSize = 0;
 
 #ifdef REGULAR_EXPRESSION_ENABLED
     static const QLatin1String regexpConnectOption = QLatin1String("QSQLITE_ENABLE_REGEXP");
@@ -1139,6 +1145,21 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
                 }
             }
         }
+        if (option.startsWith(QLatin1String("RC4_LEGACY_PAGE_SIZE"))) {
+            option = option.mid(20).trimmed();
+            if (option.startsWith(QLatin1Char('='))) {
+                bool ok;
+                const int v = option.midRef(1).trimmed().toInt(&ok);
+                if (ok) {
+                    rc4LegacyPageSize = v;
+                    if (rc4LegacyPageSize < 0) {
+                        rc4LegacyPageSize = 0;
+                    } else if (rc4LegacyPageSize > 65536) {
+                        rc4LegacyPageSize = 65536;
+                    }
+                }
+            }
+        }
 
         if (option == QLatin1String("QSQLITE_OPEN_READONLY")) {
             openReadOnlyOption = true;
@@ -1190,40 +1211,46 @@ bool SQLiteCipherDriver::open(const QString & db, const QString &, const QString
         }
 #endif
         if (cipher > 0) {
-            wxsqlite3_config(d->access, "cipher", cipher);
+            sqlite3mc_config(d->access, "cipher", cipher);
             switch (cipher) {
             case AES_128_CBC:
             {
-                wxsqlite3_config_cipher(d->access, "aes128cbc", "legacy", aes128cbcLegacy ? 1 : 0);
-                wxsqlite3_config_cipher(d->access, "aes128cbc", "legacy_page_size", aes128cbcLegacyPageSize);
+                sqlite3mc_config_cipher(d->access, "aes128cbc", "legacy", aes128cbcLegacy ? 1 : 0);
+                sqlite3mc_config_cipher(d->access, "aes128cbc", "legacy_page_size", aes128cbcLegacyPageSize);
                 break;
             }
             case AES_256_CBC:
             {
-                wxsqlite3_config_cipher(d->access, "aes256cbc", "legacy", aes256cbcLegacy ? 1 : 0);
-                wxsqlite3_config_cipher(d->access, "aes256cbc", "legacy_page_size", aes256cbcLegacyPageSize);
-                wxsqlite3_config_cipher(d->access, "aes256cbc", "kdf_iter", aes256cbcKdfIter);
+                sqlite3mc_config_cipher(d->access, "aes256cbc", "legacy", aes256cbcLegacy ? 1 : 0);
+                sqlite3mc_config_cipher(d->access, "aes256cbc", "legacy_page_size", aes256cbcLegacyPageSize);
+                sqlite3mc_config_cipher(d->access, "aes256cbc", "kdf_iter", aes256cbcKdfIter);
                 break;
             }
             case CHACHA20:
             {
-                wxsqlite3_config_cipher(d->access, "chacha20", "legacy", chacha20Legacy ? 1 : 0);
-                wxsqlite3_config_cipher(d->access, "chacha20", "legacy_page_size", chacha20LegacyPageSize);
-                wxsqlite3_config_cipher(d->access, "chacha20", "kdf_iter", chacha20KdfIter);
+                sqlite3mc_config_cipher(d->access, "chacha20", "legacy", chacha20Legacy ? 1 : 0);
+                sqlite3mc_config_cipher(d->access, "chacha20", "legacy_page_size", chacha20LegacyPageSize);
+                sqlite3mc_config_cipher(d->access, "chacha20", "kdf_iter", chacha20KdfIter);
                 break;
             }
             case SQLCIPHER:
             {
-                wxsqlite3_config_cipher(d->access, "sqlcipher", "legacy", sqlcipherLegacy);
-                wxsqlite3_config_cipher(d->access, "sqlcipher", "legacy_page_size", sqlcipherLegacyPageSize);
-                wxsqlite3_config_cipher(d->access, "sqlcipher", "kdf_iter", sqlcipherKdfIter);
-                wxsqlite3_config_cipher(d->access, "sqlcipher", "fast_kdf_iter", sqlcipherFastKdfIter);
-                wxsqlite3_config_cipher(d->access, "sqlcipher", "hmac_use", sqlcipherHmacUse ? 1 : 0);
-                wxsqlite3_config_cipher(d->access, "sqlcipher", "hmac_pgno", sqlcipherHmacPgno);
-                wxsqlite3_config_cipher(d->access, "sqlcipher", "hmac_salt_mask", sqlcipherHmacSaltMask);
-                wxsqlite3_config_cipher(d->access, "sqlcipher", "kdf_algorithm", sqlcipherKdfAlgorithm);
-                wxsqlite3_config_cipher(d->access, "sqlcipher", "hmac_algorithm", sqlcipherHmacAlgorithm);
-                wxsqlite3_config_cipher(d->access, "sqlcipher", "plaintext_header_size", sqlcipherPlainTextHeaderSize);
+                sqlite3mc_config_cipher(d->access, "sqlcipher", "legacy", sqlcipherLegacy);
+                sqlite3mc_config_cipher(d->access, "sqlcipher", "legacy_page_size", sqlcipherLegacyPageSize);
+                sqlite3mc_config_cipher(d->access, "sqlcipher", "kdf_iter", sqlcipherKdfIter);
+                sqlite3mc_config_cipher(d->access, "sqlcipher", "fast_kdf_iter", sqlcipherFastKdfIter);
+                sqlite3mc_config_cipher(d->access, "sqlcipher", "hmac_use", sqlcipherHmacUse ? 1 : 0);
+                sqlite3mc_config_cipher(d->access, "sqlcipher", "hmac_pgno", sqlcipherHmacPgno);
+                sqlite3mc_config_cipher(d->access, "sqlcipher", "hmac_salt_mask", sqlcipherHmacSaltMask);
+                sqlite3mc_config_cipher(d->access, "sqlcipher", "kdf_algorithm", sqlcipherKdfAlgorithm);
+                sqlite3mc_config_cipher(d->access, "sqlcipher", "hmac_algorithm", sqlcipherHmacAlgorithm);
+                sqlite3mc_config_cipher(d->access, "sqlcipher", "plaintext_header_size", sqlcipherPlainTextHeaderSize);
+                break;
+            }
+            case RC4:
+            {
+                sqlite3mc_config_cipher(d->access, "rc4", "legacy", 1);
+                sqlite3mc_config_cipher(d->access, "rc4", "legacy_page_size", rc4LegacyPageSize);
                 break;
             }
             default:
@@ -1537,7 +1564,9 @@ void SQLiteCipherDriver::handleNotification(const QString &tableName, qint64 row
 {
     Q_D(const SQLiteCipherDriver);
     if (d->notificationid.contains(tableName)) {
+#if (QT_VERSION < QT_VERSION_CHECK(5, 15, 0))
         emit notification(tableName);
+#endif
         emit notification(tableName, QSqlDriver::UnknownSource, QVariant(rowid));
     }
 }
